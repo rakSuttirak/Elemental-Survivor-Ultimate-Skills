@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="th">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Elemental Survivor: Ultimate Skills</title>
+
+    <!-- โหลด CSS -->
+    <link rel="stylesheet" href="style.css">
+
+    <!-- โหลด Three.js (ต้องโหลดก่อน Script หลัก) -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+</head>
+
+<body>
+
+    <!-- Game Container สำหรับ Three.js -->
+    <div id="game-container"></div>
+
+    <!-- UI Elements -->
+    <div id="crosshair" class="hidden"></div>
+    <div id="damage-flash"></div>
+    <div id="aim-hint">AIMING ULTIMATE... (Left Click to Fire)</div>
+
+    <!-- HUD ( Heads-Up Display ) -->
+    <div id="hud">
+        <div id="health-container">
+            <div class="bar-bg">
+                <div id="hp-bar" class="bar-fill"></div>
+            </div>
+            <div style="font-size:12px; margin-top:5px;">LVL <span id="level-val">1</span> | EXP <span
+                    id="exp-val">0</span>%</div>
+        </div>
+        <div id="buff-display"><strong>ACTIVE BUFFS:</strong><br><span id="active-buffs-list">- None -</span></div>
+        <div id="zone-indicator" class="neon-text">ZONE A: SAFE HAVEN</div>
+        <div id="notification-area"></div>
+
+        <!-- Skill Bar -->
+        <div id="controls-display">
+            <div class="control-group">
+                <div class="skill-name">Blade</div>
+                <div class="element-icon" id="icon-blade">⚔️</div>
+                <div class="key-hint">L-Click</div>
+            </div>
+            <div class="control-group">
+                <div class="skill-name" id="name-s1">Rapid</div>
+                <div class="element-icon" id="icon-s1">
+                    <span id="sym-s1">I</span>
+                    <div id="cd-s1" class="cooldown-overlay"></div>
+                </div>
+                <div class="key-hint">R-Click</div>
+            </div>
+            <div class="control-group">
+                <div class="skill-name" id="name-s2">AOE</div>
+                <div class="element-icon" id="icon-s2">
+                    <span id="sym-s2">II</span>
+                    <div id="cd-s2" class="cooldown-overlay"></div>
+                </div>
+                <div class="key-hint">Q</div>
+            </div>
+            <div class="control-group">
+                <div class="skill-name" id="name-ult" style="color:#ffaa00;">ULTIMATE</div>
+                <div class="element-icon ult-icon" id="icon-ult">
+                    <span id="sym-ult">III</span>
+                    <div id="cd-ult" class="cooldown-overlay"></div>
+                </div>
+                <div class="key-hint">R</div>
+            </div>
+        </div>
+        <div id="absorb-prompt">[E] ABSORB DEBRIS</div>
+    </div>
+
+    <!-- WEAPON MENU -->
+    <div id="weapon-menu">
+        <div class="menu-title neon-text">CHOOSE WEAPON</div>
+        <div style="margin-bottom:10px;">Select Your Starting Weapon:</div>
+        <div id="weapon-grid"></div>
+    </div>
+
+    <!-- MAIN MENU -->
+    <div id="main-menu" class="hidden">
+        <div class="menu-title neon-text">ELEMENTAL SURVIVOR</div>
+        <div style="margin-bottom:10px;">Select Your Starting Element:</div>
+        <div id="element-grid"></div>
+        <p style="margin-top:20px; font-size:14px; color:#aaa;">
+            WASD: Move | Mouse: Aim | L-Click: Slash | R-Click: Rapid | Q: AOE | R: Ultimate | TAB: Menu | E: Absorb
+        </p>
+    </div>
+
+    <!-- FUSION/INVENTORY MENU -->
+    <div id="fusion-menu" class="hidden">
+        <h2 class="neon-text">SYSTEM INTERFACE</h2>
+        <div id="fusion-grid">
+            <div class="neon-box panel">
+                <h3>INVENTORY</h3>
+                <div id="inventory-list"></div>
+            </div>
+            <div class="neon-box panel">
+                <h3>FUSION</h3>
+                <div style="display:flex; justify-content:center; gap:10px; margin-bottom:20px;">
+                    <div id="slot-1" class="element-icon" style="background:#333;">?</div>
+                    <div style="align-self:center;">+</div>
+                    <div id="slot-2" class="element-icon" style="background:#333;">?</div>
+                </div>
+                <button class="btn" style="width:100%;" onclick="attemptFusion()">FUSE</button>
+                <div id="fusion-result" style="margin-top:10px; color:#0f0;"></div>
+            </div>
+        </div>
+        <button class="btn" onclick="toggleFusionMenu()">CLOSE (TAB)</button>
+    </div>
+
+    <!-- โหลด Logic เกมหลัก -->
+    <script src="script.js"></script>
+</body>
+
+</html>
