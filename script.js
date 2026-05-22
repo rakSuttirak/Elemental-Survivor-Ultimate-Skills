@@ -175,7 +175,12 @@ function updatePlayerWeapon() {
     const info = WEAPONS[playerStats.weapon];
     const swordGroup = new THREE.Group();
 
-    if (playerStats.weapon === 'Longsword') {
+    if (playerStats.activeBuffs && playerStats.activeBuffs['God of Lightning']) {
+        const bolt = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.2, 5, 8), new THREE.MeshBasicMaterial({ color: 0xffff00 }));
+        bolt.position.set(0, 0, 2);
+        bolt.rotation.x = -Math.PI / 1.5;
+        swordGroup.add(bolt);
+    } else if (playerStats.weapon === 'Longsword') {
         const blade = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.8, 4.0), new THREE.MeshStandardMaterial({ color: info.color }));
         blade.position.set(0, 0, 2.2); swordGroup.add(blade);
         const hilt = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.2, 0.8), new THREE.MeshStandardMaterial({ color: 0x444444 }));
@@ -406,7 +411,8 @@ function applyDamage(enemy, amount) {
 // ==========================================
 function performBasicAttack() {
     const now = Date.now();
-    const cooldownTime = (6000 / playerStats.baseSpeed);
+    const speedMult = playerStats.activeBuffs['Lightning Speed'] ? 1.1 : 1.0;
+    const cooldownTime = (6000 / (playerStats.baseSpeed * speedMult));
 
     if (now - (playerStats.lastAttackTime || 0) > cooldownTime * 2.5) {
         playerStats.comboStep = 0;
@@ -418,6 +424,24 @@ function performBasicAttack() {
     playerStats.lastAttackTime = now;
     playerStats.isAttacking = true;
     playerStats.attackTimer = 0;
+
+    if (playerStats.activeBuffs && playerStats.activeBuffs['God of Lightning']) {
+        const pos = new THREE.Vector3(); camera.getWorldPosition(pos);
+        const dir = new THREE.Vector3(); camera.getWorldDirection(dir);
+        
+        const boltGeo = new THREE.CylinderGeometry(0.2, 0.2, 4, 8);
+        const boltMat = new THREE.MeshBasicMaterial({ color: 0xffff00 });
+        const bolt = new THREE.Mesh(boltGeo, boltMat);
+        bolt.rotation.set(Math.PI / 2, 0, 0);
+        
+        const pGroup = new THREE.Group(); pGroup.add(bolt);
+        pGroup.position.copy(pos).add(dir.clone().multiplyScalar(2));
+        pGroup.lookAt(pos.clone().add(dir));
+        pGroup.velocity = dir.multiplyScalar(50); pGroup.life = 2.0; pGroup.dmg = playerStats.baseDamage * 3;
+        pGroup.type = 'god_lightning_bolt';
+        scene.add(pGroup); bullets.push(pGroup);
+        return;
+    }
 
     const wType = WEAPONS[playerStats.weapon].type;
 
@@ -460,6 +484,7 @@ function performBasicAttack() {
                     if (playerStats.comboStep === 2) damage *= 1.5;
 
                     if (playerStats.activeBuffs['Poison Mode']) e.userData.statuses.poison = 5;
+                    if (playerStats.activeBuffs['Lightning Speed']) { e.userData.statuses.shock = 3; triggerChainLightning(e, damage * 0.5); }
                     applyDamage(e, damage);
 
                     if (playerStats.comboStep === 2) e.position.add(dir.multiplyScalar(4));
@@ -497,18 +522,18 @@ function activateSkill(slot) {
     if (slot === 2) { cdKey = 's2'; maxCd = playerStats.maxCooldowns.s2; }
     if (slot === 3) {
         cdKey = 'ult'; maxCd = playerStats.maxCooldowns.ult;
-        if (!isAimingUlt) {
+        if (type !== 'Lightning' && !isAimingUlt) {
             isAimingUlt = true; aimReticle.visible = true;
             document.getElementById('aim-hint').style.display = 'block';
             return;
-        } else {
+        } else if (type !== 'Lightning') {
             isAimingUlt = false; aimReticle.visible = false;
             document.getElementById('aim-hint').style.display = 'none';
             return;
         }
     }
     if (playerStats.cooldowns[cdKey] > 0) { notify("COOLDOWN!", 0xff0000); return; }
-    executeSkill(slot, null);
+    executeSkill(slot, slot === 3 && type === 'Lightning' ? player.position : null);
 }
 
 function executeSkill(slot, targetPos) {
@@ -555,6 +580,9 @@ function executeSkill(slot, targetPos) {
             } else {
                 notify("Armor Already Active!", color);
             }
+        } else if (type === 'Lightning') {
+            playerStats.activeBuffs['Lightning Speed'] = 20.0;
+            notify("Lightning Speed Active!", color);
         } else {
             const proj = new THREE.Mesh(new THREE.SphereGeometry(0.3), new THREE.MeshBasicMaterial({ color: color }));
             proj.position.copy(spawn); proj.velocity = dir.multiplyScalar(40); proj.life = 2; proj.dmg = 10;
@@ -648,6 +676,24 @@ function executeSkill(slot, targetPos) {
 
                 scene.add(spike); bullets.push(spike);
             });
+        } else if (type === 'Lightning') {
+            notify("Lightning Storm!", color);
+            let strikeCount = 0;
+            const stormInterval = setInterval(() => {
+                if (strikeCount >= 10 || !isGameActive) {
+                    clearInterval(stormInterval);
+                    return;
+                }
+                const nearbyEnemies = enemies.filter(e => e.position.distanceTo(player.position) < 40);
+                let targetPos = player.position.clone().add(new THREE.Vector3((Math.random() - 0.5) * 30, 0, (Math.random() - 0.5) * 30));
+                if (nearbyEnemies.length > 0) {
+                    const hitEnemy = nearbyEnemies[Math.floor(Math.random() * nearbyEnemies.length)];
+                    targetPos = hitEnemy.position.clone();
+                }
+                createVerticalLightning(targetPos);
+                createAOE(targetPos, 5, 30, color, 'Electrify', 4.0);
+                strikeCount++;
+            }, 300);
         } else {
             createAOE(player.position, 10, 30, color, 'Explosion', 1.0);
             notify(`${type} Burst!`, color);
@@ -655,7 +701,19 @@ function executeSkill(slot, targetPos) {
     }
     else if (slot === 3 && targetPos) { // ULTIMATE
         notify("ULTIMATE!", color);
-        if (type === 'Fire') {
+        if (type === 'Lightning') {
+            playerStats.activeBuffs['God of Lightning'] = 60.0;
+            notify("God of Lightning Mode!", color);
+            updatePlayerWeapon();
+            if (!player.userData.godAura) {
+                const auraGeo = new THREE.SphereGeometry(2, 16, 16);
+                const auraMat = new THREE.MeshBasicMaterial({ color: 0xffff00, transparent: true, opacity: 0.3, wireframe: true });
+                const aura = new THREE.Mesh(auraGeo, auraMat);
+                aura.position.y = 2.5;
+                player.add(aura);
+                player.userData.godAura = aura;
+            }
+        } else if (type === 'Fire') {
             const m = new THREE.Mesh(new THREE.SphereGeometry(4), new THREE.MeshBasicMaterial({ color: 0xff4400 }));
             m.position.copy(targetPos).add(new THREE.Vector3(0, 50, 0));
             m.velocity = new THREE.Vector3(0, -30, 0); m.life = 5; m.type = 'meteor'; m.dmg = 200;
@@ -730,6 +788,7 @@ function createAOE(pos, range, damage, color, effect, duration) {
                 if (e.position.distanceTo(pos) < range) {
                     applyDamage(e, damage);
                     if (effect === 'Freeze') e.userData.statuses.freeze = duration;
+                    if (effect === 'Electrify') e.userData.statuses.electrified = duration;
                     if (effect === 'Knockback') {
                         const pushDir = new THREE.Vector3().subVectors(e.position, pos).normalize();
                         pushDir.y = 0;
@@ -757,13 +816,26 @@ function animate() {
 
         // Buffs Timer
         if (playerStats.activeBuffs['Poison Mode']) { playerStats.activeBuffs['Poison Mode'] -= delta; if (playerStats.activeBuffs['Poison Mode'] <= 0) delete playerStats.activeBuffs['Poison Mode']; }
+        if (playerStats.activeBuffs['Lightning Speed']) { playerStats.activeBuffs['Lightning Speed'] -= delta; if (playerStats.activeBuffs['Lightning Speed'] <= 0) delete playerStats.activeBuffs['Lightning Speed']; }
+        if (playerStats.activeBuffs['God of Lightning']) { 
+            playerStats.activeBuffs['God of Lightning'] -= delta; 
+            if (playerStats.activeBuffs['God of Lightning'] <= 0) { 
+                delete playerStats.activeBuffs['God of Lightning'];
+                updatePlayerWeapon();
+                if (player.userData.godAura) {
+                    player.remove(player.userData.godAura);
+                    player.userData.godAura = null;
+                }
+            } 
+        }
 
         updateHUD();
 
         // Player Movement
+        const speedMult = playerStats.activeBuffs['Lightning Speed'] ? 1.1 : 1.0;
         const fwd = new THREE.Vector3(0, 0, -1).applyQuaternion(player.quaternion);
         const right = new THREE.Vector3(1, 0, 0).applyQuaternion(player.quaternion);
-        const speed = 15 * delta;
+        const speed = 15 * speedMult * delta;
         if (keys.w) player.position.add(fwd.clone().multiplyScalar(speed));
         if (keys.s) player.position.add(fwd.clone().multiplyScalar(-speed));
         if (keys.a) player.position.add(right.clone().multiplyScalar(-speed));
@@ -773,7 +845,7 @@ function animate() {
         if (playerStats.isAttacking) {
             const wType = WEAPONS[playerStats.weapon].type;
             if (wType === 'melee') {
-                playerStats.attackTimer += delta * playerStats.baseSpeed * 1.5;
+                playerStats.attackTimer += delta * playerStats.baseSpeed * speedMult * 1.5;
                 const step = playerStats.comboStep === 0 ? 2 : playerStats.comboStep - 1;
 
                 if (step === 0) {
@@ -795,7 +867,7 @@ function animate() {
                     player.userData.rArm.rotation.set(0, 0, 0);
                 }
             } else {
-                playerStats.attackTimer += delta * playerStats.baseSpeed;
+                playerStats.attackTimer += delta * playerStats.baseSpeed * speedMult;
                 player.userData.rArm.rotation.y = -Math.PI / 4 + Math.sin(playerStats.attackTimer) * Math.PI / 2;
                 if (playerStats.attackTimer > Math.PI) { playerStats.isAttacking = false; player.userData.rArm.rotation.set(0, 0, 0); }
             }
@@ -820,6 +892,7 @@ function animate() {
                     if (Math.sqrt(dx * dx + dz * dz) < 2 && b.position.y >= 0 && b.position.y <= 4.5) {
                         applyDamage(e, b.dmg);
                         if (playerStats.activeBuffs['Poison Mode']) e.userData.statuses.poison = 5;
+                        if (playerStats.activeBuffs['Lightning Speed']) { e.userData.statuses.shock = 3; triggerChainLightning(e, b.dmg * 0.5); }
                         if (b.element === 'Fire') e.userData.statuses.burn = 3;
                         if (b.element === 'Water') e.userData.statuses.slow = 3;
                         if (e.userData.hp <= 0) { shatterEnemy(e); enemies.splice(idx, 1); }
@@ -892,12 +965,27 @@ function animate() {
                         }
                     }
                 }
+            } else if (b.type === 'god_lightning_bolt') {
+                b.position.add(b.velocity.clone().multiplyScalar(delta));
+                let hit = false;
+                for (let idx = enemies.length - 1; idx >= 0; idx--) {
+                    const e = enemies[idx];
+                    if (b.position.distanceTo(e.position) < 3) { hit = true; break; }
+                }
+                if (b.position.y <= 0) hit = true;
+                if (hit) {
+                    createAOE(b.position, 15, b.dmg, 0xffff00, 'Electrify', 4.0);
+                    createExplosion(b.position, 0xffff00);
+                    scene.remove(b); bullets.splice(i, 1);
+                    continue;
+                }
             } else if (b.type === 'meteor') {
                 b.position.add(b.velocity.clone().multiplyScalar(delta));
                 if (b.position.y <= 0) {
                     createAOE(b.position, 25, b.dmg, 0xff4400, 'Explosion', 1);
                     createExplosion(b.position, 0xff4400);
                     scene.remove(b); bullets.splice(i, 1);
+                    continue;
                 }
             }
             if (b.life <= 0) { scene.remove(b); bullets.splice(i, 1); }
@@ -928,6 +1016,24 @@ function animate() {
                         }
                     }
                 }
+                if (e.userData.hp <= 0) { shatterEnemy(e); enemies.splice(idx, 1); return; }
+                return; // Prevent movement and attack
+            }
+
+            if (e.userData.statuses.electrified > 0) {
+                e.userData.statuses.electrified -= delta;
+                e.userData.hp -= 20 * delta;
+                if (Math.random() < 0.1) {
+                    e.children.forEach(child => {
+                        if (child.isMesh && child.material && child.material.emissive) {
+                            const oldEmissive = child.material.emissive.getHex();
+                            child.material.emissive.setHex(0xffff00);
+                            child.material.emissiveIntensity = 1.0; 
+                            setTimeout(() => { if (child && child.material) { child.material.emissive.setHex(oldEmissive); child.material.emissiveIntensity = 0.0; } }, 100);
+                        }
+                    });
+                }
+                if (e.userData.hpBar) e.userData.hpBar.scale.x = Math.max(0, e.userData.hp / e.userData.maxHp);
                 if (e.userData.hp <= 0) { shatterEnemy(e); enemies.splice(idx, 1); return; }
                 return; // Prevent movement and attack
             }
@@ -977,6 +1083,22 @@ function animate() {
             if (e.userData.statuses.poison > 0) {
                 e.userData.statuses.poison -= delta;
                 e.userData.hp -= 10 * delta;
+                if (e.userData.hpBar) e.userData.hpBar.scale.x = Math.max(0, e.userData.hp / e.userData.maxHp);
+                if (e.userData.hp <= 0) { shatterEnemy(e); enemies.splice(idx, 1); return; }
+            }
+            if (e.userData.statuses.shock > 0) {
+                e.userData.statuses.shock -= delta;
+                e.userData.hp -= 15 * delta;
+                if (Math.random() < 0.05) {
+                    e.children.forEach(child => {
+                        if (child.isMesh && child.material && child.material.emissive) {
+                            const oldEmissive = child.material.emissive.getHex();
+                            child.material.emissive.setHex(0xffff00);
+                            child.material.emissiveIntensity = 1.0; 
+                            setTimeout(() => { if (child && child.material) { child.material.emissive.setHex(oldEmissive); child.material.emissiveIntensity = 0.0; } }, 100);
+                        }
+                    });
+                }
                 if (e.userData.hpBar) e.userData.hpBar.scale.x = Math.max(0, e.userData.hp / e.userData.maxHp);
                 if (e.userData.hp <= 0) { shatterEnemy(e); enemies.splice(idx, 1); return; }
             }
@@ -1122,6 +1244,14 @@ function animate() {
 function updateHUD() {
     if (!player) return;
     document.getElementById('hp-bar').style.width = (playerStats.hp / playerStats.maxHp * 100) + '%';
+
+    const buffsList = [];
+    if (playerStats.activeBuffs['Poison Mode']) buffsList.push(`Poison Mode: ${Math.ceil(playerStats.activeBuffs['Poison Mode'])}s`);
+    if (playerStats.activeBuffs['Lightning Speed']) buffsList.push(`⚡ Lgt Speed: ${Math.ceil(playerStats.activeBuffs['Lightning Speed'])}s`);
+    if (playerStats.activeBuffs['God of Lightning']) buffsList.push(`⚡ GOD MODE: ${Math.ceil(playerStats.activeBuffs['God of Lightning'])}s`);
+    const buffEl = document.getElementById('active-buffs-list');
+    if (buffEl) buffEl.innerHTML = buffsList.length > 0 ? buffsList.join('<br>') : '- None -';
+
     const type = playerStats.currentElement;
     const info = MONSTERS[type] || { symbol: '⚔️', color: 0xffffff, skills: ['Rapid', 'AOE', 'ULT'] };
 
@@ -1207,6 +1337,63 @@ function takeDamageEffect() { const flash = document.getElementById('damage-flas
 function absorbDebris() { let count = 0; boneDebris.forEach(b => { if (!b.userData.target && b.position.distanceTo(player.position) < 15) { b.userData.target = player; b.userData.speed = 1; count++; } }); if (count > 0) notify(`Absorbed ${count} fragments!`, 0x00ff00); }
 function collectDebris(type, enemyLevel) { if (!playerStats.inventory[type]) playerStats.inventory[type] = 0; playerStats.inventory[type]++; const expGain = 5 * (enemyLevel || 1); playerStats.exp += expGain; if (playerStats.exp >= 100) { playerStats.level++; playerStats.exp = 0; playerStats.maxHp += 20; playerStats.hp = playerStats.maxHp; notify(`LEVEL UP!`, 0x00ff00); } updateHUD(); }
 function createExplosion(pos, color) { for (let i = 0; i < 8; i++) { const g = new THREE.BoxGeometry(0.4, 0.4, 0.4); const m = new THREE.MeshBasicMaterial({ color: color }); const mesh = new THREE.Mesh(g, m); mesh.position.copy(pos); mesh.position.x += (Math.random() - 0.5) * 2; mesh.position.y += Math.random() * 2; mesh.position.z += (Math.random() - 0.5) * 2; mesh.userData = { velocity: new THREE.Vector3((Math.random() - 0.5) * 10, Math.random() * 10, (Math.random() - 0.5) * 10), life: 1.0 }; scene.add(mesh); particles.push({ mesh: mesh, life: 1.0 }); } }
+
+function triggerChainLightning(startEnemy, damage) {
+    let currentTarget = startEnemy;
+    let hitTargets = [startEnemy];
+    let count = 0;
+    const interval = setInterval(() => {
+        if (count >= 3 || !isGameActive || !currentTarget) { clearInterval(interval); return; }
+        let nextTarget = null;
+        let minDist = Infinity;
+        enemies.forEach(e => {
+            if (!hitTargets.includes(e) && e.position) {
+                let dist = currentTarget.position.distanceTo(e.position);
+                if (dist < 15 && dist < minDist) { minDist = dist; nextTarget = e; }
+            }
+        });
+        if (nextTarget) {
+            createLightningArc(currentTarget.position, nextTarget.position);
+            nextTarget.userData.statuses.shock = 3;
+            applyDamage(nextTarget, damage);
+            hitTargets.push(nextTarget);
+            currentTarget = nextTarget;
+            if (nextTarget.userData.hp <= 0) {
+                const idx = enemies.indexOf(nextTarget);
+                if (idx > -1) { shatterEnemy(nextTarget); enemies.splice(idx, 1); }
+            }
+        } else { clearInterval(interval); }
+        count++;
+    }, 150);
+}
+
+function createLightningArc(pos1, pos2) {
+    const material = new THREE.LineBasicMaterial({ color: 0xffff00 });
+    const points = [];
+    points.push(pos1.clone().add(new THREE.Vector3(0, 2, 0)));
+    const mid = new THREE.Vector3().addVectors(pos1, pos2).multiplyScalar(0.5);
+    mid.x += (Math.random() - 0.5) * 4; mid.y += 2 + (Math.random() - 0.5) * 4; mid.z += (Math.random() - 0.5) * 4;
+    points.push(mid);
+    points.push(pos2.clone().add(new THREE.Vector3(0, 2, 0)));
+    const geometry = new THREE.BufferGeometry().setFromPoints(points);
+    const line = new THREE.Line(geometry, material);
+    scene.add(line);
+    setTimeout(() => scene.remove(line), 150);
+}
+
+function createVerticalLightning(pos) {
+    const material = new THREE.LineBasicMaterial({ color: 0xffff00 });
+    const points = [];
+    points.push(pos.clone().add(new THREE.Vector3(0, 30, 0)));
+    const mid1 = pos.clone().add(new THREE.Vector3((Math.random() - 0.5)*6, 20, (Math.random() - 0.5)*6));
+    const mid2 = pos.clone().add(new THREE.Vector3((Math.random() - 0.5)*6, 10, (Math.random() - 0.5)*6));
+    points.push(mid1, mid2);
+    points.push(pos.clone());
+    const geometry = new THREE.BufferGeometry().setFromPoints(points);
+    const line = new THREE.Line(geometry, material);
+    scene.add(line);
+    setTimeout(() => scene.remove(line), 200);
+}
 
 // Event Handlers
 function onKeyDown(e) { const k = e.key.toLowerCase(); if (keys.hasOwnProperty(k)) keys[k] = true; if (k === 'e') absorbDebris(); if (k === 'q') activateSkill(2); if (k === 'r') activateSkill(3); if (k === 'tab') { e.preventDefault(); toggleFusionMenu(); } }
