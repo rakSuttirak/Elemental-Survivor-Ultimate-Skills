@@ -54,7 +54,7 @@ let lastTime = performance.now();
 let enemySpawnTimer = 0;
 const ENEMY_SPAWN_INTERVAL = 10; // 10 seconds
 const MAX_ENEMIES = 300;
-const keys = { w: false, a: false, s: false, d: false, q: false, r: false, e: false };
+const keys = { w: false, a: false, s: false, d: false, q: false, r: false, e: false, g: false };
 const mouse = new THREE.Vector2();
 
 const playerStats = {
@@ -63,7 +63,8 @@ const playerStats = {
     currentElement: 'Normal', weapon: 'Longsword',
     baseDamage: 15, baseSpeed: 15, baseRange: 8,
     activeBuffs: {},
-    cooldowns: { s1: 0, s2: 0, ult: 0 },
+    activeTimers: { s1: 0, s2: 0, ult: 0 },
+    cooldowns: { s1: 0, s2: 0, ult: 0, heal: 0 },
     maxCooldowns: { s1: 0.5, s2: 8, ult: 30 },
     isAttacking: false, attackTimer: 0, meleeCooldown: 0
 };
@@ -159,6 +160,18 @@ function selectWeapon(w) {
     playerStats.baseDamage = info.damage;
     playerStats.baseSpeed = info.speed;
     playerStats.baseRange = info.range;
+    playerStats.maxCooldowns.s1 = (playerStats.currentElement === 'Dark' && w === 'Longsword') ? 50 : 0.5;
+    if (playerStats.cooldowns.s1 > playerStats.maxCooldowns.s1) {
+        playerStats.cooldowns.s1 = playerStats.maxCooldowns.s1;
+    }
+    playerStats.maxCooldowns.s2 = (playerStats.currentElement === 'Dark' && w === 'Longsword') ? 10 : 8;
+    if (playerStats.cooldowns.s2 > playerStats.maxCooldowns.s2) {
+        playerStats.cooldowns.s2 = playerStats.maxCooldowns.s2;
+    }
+    playerStats.maxCooldowns.ult = (playerStats.currentElement === 'Dark' && w === 'Longsword') ? 20 : 30;
+    if (playerStats.cooldowns.ult > playerStats.maxCooldowns.ult) {
+        playerStats.cooldowns.ult = playerStats.maxCooldowns.ult;
+    }
 
     updatePlayerWeapon();
 
@@ -249,6 +262,8 @@ function createPlayer() {
     rArmMesh.position.y = -0.4;
     rArm.add(rArmMesh);
 
+    [body, head, cape, lArm, rArmMesh].forEach(m => m.userData.isPlayerBody = true);
+
     // Sword Pivot (at hand)
     const swordPivot = new THREE.Group();
     swordPivot.position.set(0, -0.8, -0.8);
@@ -325,14 +340,17 @@ function spawnEnemy(forcedZoneKey = null) {
 
         const swPivot = new THREE.Object3D(); swPivot.position.set(0.5 * sizeScale, 2.2 * sizeScale, 0); group.add(swPivot);
         const sw = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.1, 2.5 * sizeScale), new THREE.MeshStandardMaterial({ color: 0xffffff }));
-        sw.position.set(0, -0.5, 1); swPivot.add(sw); group.userData.swordPivot = swPivot;
+        sw.position.set(0, -0.5, 1); sw.userData.isWeapon = true; swPivot.add(sw); group.userData.swordPivot = swPivot;
 
         group.position.set(x, 0, z);
         group.userData = {
             hp: scaledHp, maxHp: scaledHp, type: elemKey, name: info.name,
             buff: info.buff, canAbsorb: false, lastAttack: 0, statuses: {},
             groupId: groupId, isAggro: false,
-            level: enemyLevel, dmgMultiplier: scaledDmg, zone: zoneKey
+            level: enemyLevel, dmgMultiplier: scaledDmg, zone: zoneKey,
+            spawnPoint: new THREE.Vector3(x, 0, z),
+            wanderTarget: new THREE.Vector3(x + (Math.random() - 0.5) * 10, 0, z + (Math.random() - 0.5) * 10),
+            wanderWait: 0
         };
 
         // Health Bar Background
@@ -376,7 +394,7 @@ function spawnEnemy(forcedZoneKey = null) {
 
 function shatterEnemy(enemy) {
     enemy.traverse(c => {
-        if (c.isMesh && c !== enemy.userData.hpBar && c !== enemy.userData.hpBarBg) {
+        if (c.isMesh && c !== enemy.userData.hpBar && c !== enemy.userData.hpBarBg && !c.userData.isWeapon) {
             const m = new THREE.Mesh(c.geometry.clone(), c.material.clone());
             c.getWorldPosition(m.position); c.getWorldQuaternion(m.quaternion);
             m.userData = { velocity: new THREE.Vector3((Math.random() - 0.5) * 8, Math.random() * 5 + 3, (Math.random() - 0.5) * 8), angularVelocity: new THREE.Vector3(Math.random(), Math.random(), Math.random()), type: enemy.userData.type, isBone: true, level: enemy.userData.level || 1 };
@@ -411,7 +429,8 @@ function applyDamage(enemy, amount) {
 // ==========================================
 function performBasicAttack() {
     const now = Date.now();
-    const speedMult = playerStats.activeBuffs['Lightning Speed'] ? 1.1 : 1.0;
+    let speedMult = playerStats.activeBuffs['Lightning Speed'] ? 1.1 : 1.0;
+    if (playerStats.activeBuffs['Shadow Form']) speedMult *= 1.1;
     const cooldownTime = (6000 / (playerStats.baseSpeed * speedMult));
 
     if (now - (playerStats.lastAttackTime || 0) > cooldownTime * 2.5) {
@@ -482,6 +501,7 @@ function performBasicAttack() {
                 if (pDir.dot(dir) > 0 || playerStats.comboStep === 2) {
                     let damage = playerStats.baseDamage;
                     if (playerStats.comboStep === 2) damage *= 1.5;
+                    if (playerStats.activeBuffs['Shadow Form']) damage *= 1.1;
 
                     if (playerStats.activeBuffs['Poison Mode']) e.userData.statuses.poison = 5;
                     if (playerStats.activeBuffs['Lightning Speed']) { e.userData.statuses.shock = 3; triggerChainLightning(e, damage * 0.5); }
@@ -504,14 +524,18 @@ function performBasicAttack() {
         const pGroup = new THREE.Group(); pGroup.add(proj);
         pGroup.position.copy(pos).add(dir.clone().multiplyScalar(2));
         pGroup.lookAt(pos.clone().add(dir));
-        pGroup.velocity = dir.multiplyScalar(60); pGroup.life = 1.5; pGroup.dmg = playerStats.baseDamage;
+        let damage = playerStats.baseDamage;
+        if (playerStats.activeBuffs['Shadow Form']) damage *= 1.1;
+        pGroup.velocity = dir.multiplyScalar(60); pGroup.life = 1.5; pGroup.dmg = damage;
         pGroup.type = 'projectile'; scene.add(pGroup); bullets.push(pGroup);
     } else if (wType === 'magic') {
         const pos = new THREE.Vector3(); camera.getWorldPosition(pos);
         const dir = new THREE.Vector3(); camera.getWorldDirection(dir);
         const proj = new THREE.Mesh(new THREE.SphereGeometry(0.4), new THREE.MeshBasicMaterial({ color: WEAPONS[playerStats.weapon].color }));
         proj.position.copy(pos).add(dir.clone().multiplyScalar(2));
-        proj.velocity = dir.multiplyScalar(40); proj.life = 2; proj.dmg = playerStats.baseDamage;
+        let damage = playerStats.baseDamage;
+        if (playerStats.activeBuffs['Shadow Form']) damage *= 1.1;
+        proj.velocity = dir.multiplyScalar(40); proj.life = 2; proj.dmg = damage;
         proj.type = 'projectile'; scene.add(proj); bullets.push(proj);
     }
 }
@@ -548,6 +572,22 @@ function executeSkill(slot, targetPos) {
     const color = MONSTERS[type].color;
 
     if (slot === 1) { // Rapid
+        if (type === 'Dark' && playerStats.weapon === 'Longsword') {
+            notify("Shadow Form!", color);
+            playerStats.activeBuffs['Shadow Form'] = 30.0;
+            playerStats.activeTimers.s1 = 30.0;
+            
+            // change player material to shadow
+            const shadowMat = new THREE.MeshStandardMaterial({ color: 0x111111, transparent: true, opacity: 0.6, emissive: 0x220044 });
+            player.traverse((child) => {
+                if (child.isMesh && child.userData.isPlayerBody) {
+                    if (!child.userData.originalMat) child.userData.originalMat = child.material;
+                    child.material = shadowMat;
+                }
+            });
+            return;
+        }
+
         if (type === 'Wind') {
             const geo = new THREE.TorusGeometry(0.8, 0.1, 8, 16, Math.PI);
             const mat = new THREE.MeshBasicMaterial({ color: color, side: THREE.DoubleSide });
@@ -593,6 +633,46 @@ function executeSkill(slot, targetPos) {
         }
     }
     else if (slot === 2) { // AOE or Fire Volley
+        if (type === 'Dark' && playerStats.weapon === 'Longsword') {
+            notify("Dark Crucifixion!", color);
+            playerStats.activeTimers.s2 = 20.0;
+            const sortedEnemies = [...enemies].sort((a, b) => a.position.distanceTo(player.position) - b.position.distanceTo(player.position));
+            const targets = sortedEnemies.slice(0, 5);
+            targets.forEach(e => {
+                e.userData.statuses.root = 20.0;
+                
+                const crossGroup = new THREE.Group();
+                const mat = new THREE.MeshStandardMaterial({ color: 0x220044, emissive: 0x110022 });
+                const vBeam = new THREE.Mesh(new THREE.BoxGeometry(1, 8, 1), mat);
+                vBeam.position.y = 4;
+                const hBeam = new THREE.Mesh(new THREE.BoxGeometry(5, 1, 1), mat);
+                hBeam.position.y = 5;
+                crossGroup.add(vBeam); crossGroup.add(hBeam);
+                
+                const spikeMat = new THREE.MeshStandardMaterial({ color: 0x880000 });
+                for (let i=0; i<3; i++) {
+                    const spike = new THREE.Mesh(new THREE.ConeGeometry(0.3, 3, 4), spikeMat);
+                    spike.rotation.x = Math.PI / 2;
+                    spike.position.set((Math.random()-0.5)*2, 3 + Math.random()*3, 0);
+                    crossGroup.add(spike);
+                }
+                
+                crossGroup.position.copy(e.position);
+                scene.add(crossGroup);
+                
+                const crucifix = new THREE.Object3D();
+                crucifix.life = 20.0;
+                crucifix.type = 'crucifix';
+                crucifix.userData.target = e;
+                crucifix.userData.mesh = crossGroup;
+                crucifix.userData.dmgTimer = 0;
+                crucifix.userData.healTimer = 0;
+                scene.add(crucifix);
+                bullets.push(crucifix);
+            });
+            return;
+        }
+
         if (type === 'Fire') {
             notify("Fire Volley!", color);
             let count = 0;
@@ -701,8 +781,32 @@ function executeSkill(slot, targetPos) {
     }
     else if (slot === 3 && targetPos) { // ULTIMATE
         notify("ULTIMATE!", color);
+        if (type === 'Dark' && playerStats.weapon === 'Longsword') {
+            notify("Black Hole!", color);
+            playerStats.activeTimers.ult = 10.0;
+
+            const bhGeo = new THREE.SphereGeometry(6, 32, 32);
+            const bhMat = new THREE.MeshBasicMaterial({ color: 0x000000 });
+            const bh = new THREE.Mesh(bhGeo, bhMat);
+            bh.position.copy(targetPos);
+            bh.position.y = 6;
+            
+            const auraGeo = new THREE.SphereGeometry(7, 32, 32);
+            const auraMat = new THREE.MeshBasicMaterial({ color: 0x8800ff, transparent: true, opacity: 0.5, side: THREE.BackSide });
+            const aura = new THREE.Mesh(auraGeo, auraMat);
+            bh.add(aura);
+
+            bh.life = 10.0;
+            bh.type = 'black_hole';
+            bh.dmg = 50;
+            scene.add(bh);
+            bullets.push(bh);
+            return;
+        }
+
         if (type === 'Lightning') {
             playerStats.activeBuffs['God of Lightning'] = 60.0;
+            playerStats.activeTimers.ult = 60.0;
             notify("God of Lightning Mode!", color);
             updatePlayerWeapon();
             if (!player.userData.godAura) {
@@ -814,9 +918,36 @@ function animate() {
         if (playerStats.cooldowns.s2 > 0) playerStats.cooldowns.s2 -= delta;
         if (playerStats.cooldowns.ult > 0) playerStats.cooldowns.ult -= delta;
 
+        if (playerStats.activeTimers.s1 > 0) playerStats.activeTimers.s1 -= delta;
+        if (playerStats.activeTimers.s2 > 0) playerStats.activeTimers.s2 -= delta;
+        if (playerStats.activeTimers.ult > 0) playerStats.activeTimers.ult -= delta;
+        if (playerStats.cooldowns.heal > 0) playerStats.cooldowns.heal -= delta;
+
         // Buffs Timer
+        if (playerStats.activeBuffs['Healing']) { 
+            if (!playerStats.healTickTimer) playerStats.healTickTimer = 0;
+            playerStats.healTickTimer += delta;
+            if (playerStats.healTickTimer >= 1.0) {
+                playerStats.healTickTimer -= 1.0;
+                playerStats.hp = Math.min(playerStats.maxHp, playerStats.hp + 2);
+                updateHUD();
+            }
+            playerStats.activeBuffs['Healing'] -= delta; 
+            if (playerStats.activeBuffs['Healing'] <= 0) delete playerStats.activeBuffs['Healing']; 
+        }
         if (playerStats.activeBuffs['Poison Mode']) { playerStats.activeBuffs['Poison Mode'] -= delta; if (playerStats.activeBuffs['Poison Mode'] <= 0) delete playerStats.activeBuffs['Poison Mode']; }
         if (playerStats.activeBuffs['Lightning Speed']) { playerStats.activeBuffs['Lightning Speed'] -= delta; if (playerStats.activeBuffs['Lightning Speed'] <= 0) delete playerStats.activeBuffs['Lightning Speed']; }
+        if (playerStats.activeBuffs['Shadow Form']) { 
+            playerStats.activeBuffs['Shadow Form'] -= delta; 
+            if (playerStats.activeBuffs['Shadow Form'] <= 0) { 
+                delete playerStats.activeBuffs['Shadow Form']; 
+                player.traverse(child => {
+                    if (child.isMesh && child.userData.isPlayerBody && child.userData.origMat) {
+                        child.material = child.userData.origMat;
+                    }
+                });
+            } 
+        }
         if (playerStats.activeBuffs['God of Lightning']) { 
             playerStats.activeBuffs['God of Lightning'] -= delta; 
             if (playerStats.activeBuffs['God of Lightning'] <= 0) { 
@@ -832,7 +963,8 @@ function animate() {
         updateHUD();
 
         // Player Movement
-        const speedMult = playerStats.activeBuffs['Lightning Speed'] ? 1.1 : 1.0;
+        let speedMult = playerStats.activeBuffs['Lightning Speed'] ? 1.1 : 1.0;
+        if (playerStats.activeBuffs['Shadow Form']) speedMult *= 1.1;
         const fwd = new THREE.Vector3(0, 0, -1).applyQuaternion(player.quaternion);
         const right = new THREE.Vector3(1, 0, 0).applyQuaternion(player.quaternion);
         const speed = 15 * speedMult * delta;
@@ -979,6 +1111,69 @@ function animate() {
                     scene.remove(b); bullets.splice(i, 1);
                     continue;
                 }
+            } else if (b.type === 'crucifix') {
+                const targetAlive = b.userData.target && b.userData.target.parent;
+                if (targetAlive) {
+                    if (b.life > 10.0) { // Deal damage for first 10 seconds
+                        b.userData.dmgTimer += delta;
+                        if (b.userData.dmgTimer >= 1.0) {
+                            b.userData.dmgTimer -= 1.0;
+                            applyDamage(b.userData.target, 10);
+                            if (b.userData.target.userData.hp <= 0) {
+                                const idx = enemies.indexOf(b.userData.target);
+                                if (idx > -1) { shatterEnemy(b.userData.target); enemies.splice(idx, 1); }
+                            }
+                        }
+                    }
+                    b.userData.target.userData.statuses.root = 0.5; // Always keep rooted while cross is active
+                }
+                if (b.life > 15.0) { // Heal for first 5 seconds
+                    b.userData.healTimer += delta;
+                    if (b.userData.healTimer >= 1.0) {
+                        b.userData.healTimer -= 1.0;
+                        playerStats.hp = Math.min(playerStats.maxHp, playerStats.hp + 2);
+                    }
+                }
+                if (b.life <= 0) {
+                    scene.remove(b.userData.mesh);
+                }
+            } else if (b.type === 'black_hole') {
+                b.rotation.y += delta; 
+                if(b.children[0]) {
+                    b.children[0].rotation.x += delta * 2; 
+                    b.children[0].rotation.y -= delta * 2;
+                }
+                
+                for (let idx = enemies.length - 1; idx >= 0; idx--) {
+                    const e = enemies[idx];
+                    const dist = e.position.distanceTo(b.position);
+                    
+                    if (dist < 40) {
+                        const pullDir = new THREE.Vector3().subVectors(b.position, e.position);
+                        pullDir.y = 0;
+                        pullDir.normalize();
+                        const pullStrength = (40 - dist) / 40 * 20; 
+                        e.position.add(pullDir.multiplyScalar(pullStrength * delta));
+                        
+                        if (dist < 8) { 
+                            if (!e.userData.bhDmgTimer) e.userData.bhDmgTimer = 0;
+                            e.userData.bhDmgTimer += delta;
+                            if (e.userData.bhDmgTimer >= 1.0) {
+                                e.userData.bhDmgTimer -= 1.0;
+                                applyDamage(e, b.dmg);
+                                if (e.userData.hp <= 0) {
+                                    shatterEnemy(e); enemies.splice(idx, 1);
+                                }
+                            }
+                        }
+                    }
+                }
+                
+                if (b.life <= 0) {
+                    createExplosion(b.position, 0x8800ff);
+                    scene.remove(b); bullets.splice(i, 1);
+                    continue;
+                }
             } else if (b.type === 'meteor') {
                 b.position.add(b.velocity.clone().multiplyScalar(delta));
                 if (b.position.y <= 0) {
@@ -1058,9 +1253,15 @@ function animate() {
                 let currentSpeed = 3;
                 if (e.userData.statuses.slow > 0) { e.userData.statuses.slow -= delta; currentSpeed = 1.0; }
 
-                let targetPos = player.position;
-                let minDistToTarget = e.position.distanceTo(player.position);
-                let targetObj = player;
+                let targetPos = null;
+                let minDistToTarget = Infinity;
+                let targetObj = null;
+
+                if (!playerStats.activeBuffs['Shadow Form']) {
+                    targetPos = player.position;
+                    minDistToTarget = e.position.distanceTo(player.position);
+                    targetObj = player;
+                }
 
                 allies.forEach(ally => {
                     const d = e.position.distanceTo(ally.position);
@@ -1073,10 +1274,26 @@ function animate() {
 
                 e.userData.currentTarget = targetObj;
 
-                if (minDistToTarget < 35 || e.userData.isAggro) {
+                if (targetObj && (minDistToTarget < 35 || e.userData.isAggro)) {
                     const dir = new THREE.Vector3().subVectors(targetPos, e.position).normalize();
                     e.position.add(dir.multiplyScalar(currentSpeed * delta));
                     e.lookAt(targetPos.x, e.position.y, targetPos.z);
+                } else if (e.userData.spawnPoint) {
+                    if (e.userData.wanderWait > 0) {
+                        e.userData.wanderWait -= delta;
+                    } else {
+                        const distToWander = e.position.distanceTo(e.userData.wanderTarget);
+                        if (distToWander < 1) {
+                            e.userData.wanderWait = 1 + Math.random() * 3;
+                            const sx = e.userData.spawnPoint.x;
+                            const sz = e.userData.spawnPoint.z;
+                            e.userData.wanderTarget.set(sx + (Math.random() - 0.5) * 20, 0, sz + (Math.random() - 0.5) * 20);
+                        } else {
+                            const dir = new THREE.Vector3().subVectors(e.userData.wanderTarget, e.position).normalize();
+                            e.position.add(dir.multiplyScalar(currentSpeed * 0.5 * delta)); // Move slower while wandering
+                            e.lookAt(e.userData.wanderTarget.x, e.position.y, e.userData.wanderTarget.z);
+                        }
+                    }
                 }
             }
 
@@ -1112,12 +1329,14 @@ function animate() {
             if (e.userData.hpBarBg) e.userData.hpBarBg.lookAt(camera.position);
 
             // Enemy Attack
-            const targetObj = e.userData.currentTarget || player;
-            const dist = e.position.distanceTo(targetObj.position);
-            if (dist < 4.5 && !e.userData.canAbsorb) {
-                const now = Date.now();
-                if (!e.userData.lastAttack || now - e.userData.lastAttack > 1500) {
-                    e.userData.lastAttack = now; enemyAttack(e, targetObj);
+            const targetObj = e.userData.currentTarget;
+            if (targetObj) {
+                const dist = e.position.distanceTo(targetObj.position);
+                if (dist < 4.5 && !e.userData.canAbsorb) {
+                    const now = Date.now();
+                    if (!e.userData.lastAttack || now - e.userData.lastAttack > 1500) {
+                        e.userData.lastAttack = now; enemyAttack(e, targetObj);
+                    }
                 }
             }
             if (e.userData.isAttacking) {
@@ -1246,9 +1465,11 @@ function updateHUD() {
     document.getElementById('hp-bar').style.width = (playerStats.hp / playerStats.maxHp * 100) + '%';
 
     const buffsList = [];
+    if (playerStats.activeBuffs['Healing']) buffsList.push(`💚 Healing: ${Math.ceil(playerStats.activeBuffs['Healing'])}s`);
     if (playerStats.activeBuffs['Poison Mode']) buffsList.push(`Poison Mode: ${Math.ceil(playerStats.activeBuffs['Poison Mode'])}s`);
     if (playerStats.activeBuffs['Lightning Speed']) buffsList.push(`⚡ Lgt Speed: ${Math.ceil(playerStats.activeBuffs['Lightning Speed'])}s`);
     if (playerStats.activeBuffs['God of Lightning']) buffsList.push(`⚡ GOD MODE: ${Math.ceil(playerStats.activeBuffs['God of Lightning'])}s`);
+    if (playerStats.activeBuffs['Shadow Form']) buffsList.push(`🌑 Shadow Form: ${Math.ceil(playerStats.activeBuffs['Shadow Form'])}s`);
     const buffEl = document.getElementById('active-buffs-list');
     if (buffEl) buffEl.innerHTML = buffsList.length > 0 ? buffsList.join('<br>') : '- None -';
 
@@ -1257,14 +1478,22 @@ function updateHUD() {
 
     const bladeIcon = document.getElementById('icon-blade');
     if (bladeIcon) { bladeIcon.innerText = info.symbol; bladeIcon.style.borderColor = '#' + info.color.toString(16); bladeIcon.style.color = '#' + info.color.toString(16); }
-    document.getElementById('name-s1').innerText = info.skills[0];
+    document.getElementById('name-s1').innerText = (type === 'Dark' && playerStats.weapon === 'Longsword') ? 'Shadow Form' : info.skills[0];
     document.getElementById('icon-s1').style.borderColor = '#' + info.color.toString(16);
     document.getElementById('cd-s1').style.height = (playerStats.cooldowns.s1 / playerStats.maxCooldowns.s1 * 100) + '%';
-    document.getElementById('name-s2').innerText = info.skills[1];
+    const actS1 = document.getElementById('act-s1');
+    if(actS1) actS1.innerText = playerStats.activeTimers.s1 > 0 ? Math.ceil(playerStats.activeTimers.s1) + 's' : '';
+    
+    document.getElementById('name-s2').innerText = (type === 'Dark' && playerStats.weapon === 'Longsword') ? 'Crucifixion' : info.skills[1];
     document.getElementById('icon-s2').style.borderColor = '#' + info.color.toString(16);
     document.getElementById('cd-s2').style.height = (playerStats.cooldowns.s2 / playerStats.maxCooldowns.s2 * 100) + '%';
-    document.getElementById('name-ult').innerText = info.skills[2];
+    const actS2 = document.getElementById('act-s2');
+    if(actS2) actS2.innerText = playerStats.activeTimers.s2 > 0 ? Math.ceil(playerStats.activeTimers.s2) + 's' : '';
+    
+    document.getElementById('name-ult').innerText = (type === 'Dark' && playerStats.weapon === 'Longsword') ? 'Black Hole' : info.skills[2];
     document.getElementById('cd-ult').style.height = (playerStats.cooldowns.ult / playerStats.maxCooldowns.ult * 100) + '%';
+    const actUlt = document.getElementById('act-ult');
+    if(actUlt) actUlt.innerText = playerStats.activeTimers.ult > 0 ? Math.ceil(playerStats.activeTimers.ult) + 's' : '';
 }
 
 function notify(msg, color) {
@@ -1277,6 +1506,18 @@ function notify(msg, color) {
 function selectElement(el) {
     playerStats.currentElement = el;
     playerStats.hp = playerStats.maxHp;
+    playerStats.maxCooldowns.s1 = (el === 'Dark' && playerStats.weapon === 'Longsword') ? 50 : 0.5;
+    if (playerStats.cooldowns.s1 > playerStats.maxCooldowns.s1) {
+        playerStats.cooldowns.s1 = playerStats.maxCooldowns.s1;
+    }
+    playerStats.maxCooldowns.s2 = (el === 'Dark' && playerStats.weapon === 'Longsword') ? 10 : 8;
+    if (playerStats.cooldowns.s2 > playerStats.maxCooldowns.s2) {
+        playerStats.cooldowns.s2 = playerStats.maxCooldowns.s2;
+    }
+    playerStats.maxCooldowns.ult = (el === 'Dark' && playerStats.weapon === 'Longsword') ? 20 : 30;
+    if (playerStats.cooldowns.ult > playerStats.maxCooldowns.ult) {
+        playerStats.cooldowns.ult = playerStats.maxCooldowns.ult;
+    }
     document.getElementById('main-menu').classList.add('hidden');
     document.getElementById('hud').style.display = 'block';
     renderer.domElement.requestPointerLock();
@@ -1335,7 +1576,7 @@ function enemyAttack(enemy, target = player) {
 
 function takeDamageEffect() { const flash = document.getElementById('damage-flash'); flash.style.opacity = 1; setTimeout(() => { flash.style.opacity = 0; }, 100); }
 function absorbDebris() { let count = 0; boneDebris.forEach(b => { if (!b.userData.target && b.position.distanceTo(player.position) < 15) { b.userData.target = player; b.userData.speed = 1; count++; } }); if (count > 0) notify(`Absorbed ${count} fragments!`, 0x00ff00); }
-function collectDebris(type, enemyLevel) { if (!playerStats.inventory[type]) playerStats.inventory[type] = 0; playerStats.inventory[type]++; const expGain = 5 * (enemyLevel || 1); playerStats.exp += expGain; if (playerStats.exp >= 100) { playerStats.level++; playerStats.exp = 0; playerStats.maxHp += 20; playerStats.hp = playerStats.maxHp; notify(`LEVEL UP!`, 0x00ff00); } updateHUD(); }
+function collectDebris(type, enemyLevel) { if (!playerStats.inventory[type]) playerStats.inventory[type] = 0; playerStats.inventory[type]++; notify(`+1 ${type} Fragment`, MONSTERS[type] ? MONSTERS[type].color : 0xffffff); const expGain = 5 * (enemyLevel || 1); playerStats.exp += expGain; if (playerStats.exp >= 100) { playerStats.level++; playerStats.exp = 0; playerStats.maxHp += 20; notify(`LEVEL UP!`, 0x00ff00); } updateHUD(); }
 function createExplosion(pos, color) { for (let i = 0; i < 8; i++) { const g = new THREE.BoxGeometry(0.4, 0.4, 0.4); const m = new THREE.MeshBasicMaterial({ color: color }); const mesh = new THREE.Mesh(g, m); mesh.position.copy(pos); mesh.position.x += (Math.random() - 0.5) * 2; mesh.position.y += Math.random() * 2; mesh.position.z += (Math.random() - 0.5) * 2; mesh.userData = { velocity: new THREE.Vector3((Math.random() - 0.5) * 10, Math.random() * 10, (Math.random() - 0.5) * 10), life: 1.0 }; scene.add(mesh); particles.push({ mesh: mesh, life: 1.0 }); } }
 
 function triggerChainLightning(startEnemy, damage) {
@@ -1396,7 +1637,14 @@ function createVerticalLightning(pos) {
 }
 
 // Event Handlers
-function onKeyDown(e) { const k = e.key.toLowerCase(); if (keys.hasOwnProperty(k)) keys[k] = true; if (k === 'e') absorbDebris(); if (k === 'q') activateSkill(2); if (k === 'r') activateSkill(3); if (k === 'tab') { e.preventDefault(); toggleFusionMenu(); } }
+function activateHeal() {
+    if (playerStats.cooldowns.heal > 0) { notify("HEAL ON COOLDOWN!", 0xff0000); return; }
+    playerStats.activeBuffs['Healing'] = 10.0;
+    playerStats.cooldowns.heal = 15.0;
+    notify("Healing Activated!", 0x00ff00);
+}
+
+function onKeyDown(e) { const k = e.key.toLowerCase(); if (keys.hasOwnProperty(k)) keys[k] = true; if (k === 'e') absorbDebris(); if (k === 'q') activateSkill(2); if (k === 'r') activateSkill(3); if (k === 'g') activateHeal(); if (k === 'tab') { e.preventDefault(); toggleFusionMenu(); } }
 function onKeyUp(e) { const k = e.key.toLowerCase(); if (keys.hasOwnProperty(k)) keys[k] = false; }
 function onMouseDown(e) { if (!isGameActive) return; if (e.button === 0) { if (isAimingUlt) { executeSkill(3, aimReticle.position); isAimingUlt = false; aimReticle.visible = false; document.getElementById('aim-hint').style.display = 'none'; } else { performBasicAttack(); } } if (e.button === 2) { if (isAimingUlt) { isAimingUlt = false; aimReticle.visible = false; document.getElementById('aim-hint').style.display = 'none'; notify("CANCELLED", 0xffffff); } else { activateSkill(1); } } }
 function onMouseMove(e) { if (!isGameActive) return; player.rotation.y -= e.movementX * 0.002; cameraPivot.rotation.x = Math.max(-1, Math.min(1, cameraPivot.rotation.x - e.movementY * 0.002)); if (isAimingUlt) { raycaster.setFromCamera(new THREE.Vector2(0, 0), camera); const intersects = raycaster.intersectObjects(scene.children); const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(player.quaternion).multiplyScalar(15); aimReticle.position.copy(player.position).add(forward); aimReticle.position.y = 0.5; } }
