@@ -70,7 +70,7 @@ const playerStats = {
 };
 
 let fusionSlots = [null, null];
-const bullets = [], enemies = [], particles = [], boneDebris = [], resources = [], persistentEffects = [], allies = [];
+const bullets = [], enemies = [], particles = [], boneDebris = [], droppedWeapons = [], resources = [], persistentEffects = [], allies = [];
 
 // ==========================================
 // 3. INITIALIZATION
@@ -208,11 +208,11 @@ function updatePlayerWeapon() {
         string.position.set(0, 0, 1); swordGroup.add(string);
         swordGroup.position.set(0.1, -0.5, 0.5);
     } else if (playerStats.weapon === 'Staff') {
-        const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.08, 4), new THREE.MeshStandardMaterial({ color: 0x5c4033 }));
-        pole.rotation.x = Math.PI / 2; pole.position.set(0, 0, 1.5); swordGroup.add(pole);
+        const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.05, 4), new THREE.MeshStandardMaterial({ color: 0x5c4033 }));
+        pole.rotation.x = Math.PI / 2; pole.position.set(0, 0, 0); swordGroup.add(pole);
         const orb = new THREE.Mesh(new THREE.SphereGeometry(0.3), new THREE.MeshBasicMaterial({ color: info.color }));
-        orb.position.set(0, 0, 3.5); swordGroup.add(orb);
-        swordGroup.position.set(0.8, -0.5, 0.5);
+        orb.position.set(0, 0, 1.7); swordGroup.add(orb);
+        swordGroup.rotation.x = -Math.PI / 1.5;
     }
 
     pivot.add(swordGroup);
@@ -394,11 +394,18 @@ function spawnEnemy(forcedZoneKey = null) {
 
 function shatterEnemy(enemy) {
     enemy.traverse(c => {
-        if (c.isMesh && c !== enemy.userData.hpBar && c !== enemy.userData.hpBarBg && !c.userData.isWeapon) {
-            const m = new THREE.Mesh(c.geometry.clone(), c.material.clone());
-            c.getWorldPosition(m.position); c.getWorldQuaternion(m.quaternion);
-            m.userData = { velocity: new THREE.Vector3((Math.random() - 0.5) * 8, Math.random() * 5 + 3, (Math.random() - 0.5) * 8), angularVelocity: new THREE.Vector3(Math.random(), Math.random(), Math.random()), type: enemy.userData.type, isBone: true, level: enemy.userData.level || 1 };
-            scene.add(m); boneDebris.push(m);
+        if (c.isMesh && c !== enemy.userData.hpBar && c !== enemy.userData.hpBarBg) {
+            if (c.userData.isWeapon) {
+                const m = new THREE.Mesh(c.geometry.clone(), c.material.clone());
+                c.getWorldPosition(m.position); c.getWorldQuaternion(m.quaternion);
+                m.userData = { velocity: new THREE.Vector3((Math.random() - 0.5) * 4, Math.random() * 2 + 3, (Math.random() - 0.5) * 4), angularVelocity: new THREE.Vector3(Math.random(), Math.random(), Math.random()), life: 30 };
+                scene.add(m); droppedWeapons.push(m);
+            } else {
+                const m = new THREE.Mesh(c.geometry.clone(), c.material.clone());
+                c.getWorldPosition(m.position); c.getWorldQuaternion(m.quaternion);
+                m.userData = { velocity: new THREE.Vector3((Math.random() - 0.5) * 8, Math.random() * 5 + 3, (Math.random() - 0.5) * 8), angularVelocity: new THREE.Vector3(Math.random(), Math.random(), Math.random()), type: enemy.userData.type, isBone: true, level: enemy.userData.level || 1 };
+                scene.add(m); boneDebris.push(m);
+            }
         }
     });
     scene.remove(enemy);
@@ -447,12 +454,12 @@ function performBasicAttack() {
     if (playerStats.activeBuffs && playerStats.activeBuffs['God of Lightning']) {
         const pos = new THREE.Vector3(); camera.getWorldPosition(pos);
         const dir = new THREE.Vector3(); camera.getWorldDirection(dir);
-        
+
         const boltGeo = new THREE.CylinderGeometry(0.2, 0.2, 4, 8);
         const boltMat = new THREE.MeshBasicMaterial({ color: 0xffff00 });
         const bolt = new THREE.Mesh(boltGeo, boltMat);
         bolt.rotation.set(Math.PI / 2, 0, 0);
-        
+
         const pGroup = new THREE.Group(); pGroup.add(bolt);
         pGroup.position.copy(pos).add(dir.clone().multiplyScalar(2));
         pGroup.lookAt(pos.clone().add(dir));
@@ -576,7 +583,7 @@ function executeSkill(slot, targetPos) {
             notify("Shadow Form!", color);
             playerStats.activeBuffs['Shadow Form'] = 30.0;
             playerStats.activeTimers.s1 = 30.0;
-            
+
             // change player material to shadow
             const shadowMat = new THREE.MeshStandardMaterial({ color: 0x111111, transparent: true, opacity: 0.6, emissive: 0x220044 });
             player.traverse((child) => {
@@ -640,7 +647,7 @@ function executeSkill(slot, targetPos) {
             const targets = sortedEnemies.slice(0, 5);
             targets.forEach(e => {
                 e.userData.statuses.root = 20.0;
-                
+
                 const crossGroup = new THREE.Group();
                 const mat = new THREE.MeshStandardMaterial({ color: 0x220044, emissive: 0x110022 });
                 const vBeam = new THREE.Mesh(new THREE.BoxGeometry(1, 8, 1), mat);
@@ -648,18 +655,18 @@ function executeSkill(slot, targetPos) {
                 const hBeam = new THREE.Mesh(new THREE.BoxGeometry(5, 1, 1), mat);
                 hBeam.position.y = 5;
                 crossGroup.add(vBeam); crossGroup.add(hBeam);
-                
+
                 const spikeMat = new THREE.MeshStandardMaterial({ color: 0x880000 });
-                for (let i=0; i<3; i++) {
+                for (let i = 0; i < 3; i++) {
                     const spike = new THREE.Mesh(new THREE.ConeGeometry(0.3, 3, 4), spikeMat);
                     spike.rotation.x = Math.PI / 2;
-                    spike.position.set((Math.random()-0.5)*2, 3 + Math.random()*3, 0);
+                    spike.position.set((Math.random() - 0.5) * 2, 3 + Math.random() * 3, 0);
                     crossGroup.add(spike);
                 }
-                
+
                 crossGroup.position.copy(e.position);
                 scene.add(crossGroup);
-                
+
                 const crucifix = new THREE.Object3D();
                 crucifix.life = 20.0;
                 crucifix.type = 'crucifix';
@@ -790,7 +797,7 @@ function executeSkill(slot, targetPos) {
             const bh = new THREE.Mesh(bhGeo, bhMat);
             bh.position.copy(targetPos);
             bh.position.y = 6;
-            
+
             const auraGeo = new THREE.SphereGeometry(7, 32, 32);
             const auraMat = new THREE.MeshBasicMaterial({ color: 0x8800ff, transparent: true, opacity: 0.5, side: THREE.BackSide });
             const aura = new THREE.Mesh(auraGeo, auraMat);
@@ -924,7 +931,7 @@ function animate() {
         if (playerStats.cooldowns.heal > 0) playerStats.cooldowns.heal -= delta;
 
         // Buffs Timer
-        if (playerStats.activeBuffs['Healing']) { 
+        if (playerStats.activeBuffs['Healing']) {
             if (!playerStats.healTickTimer) playerStats.healTickTimer = 0;
             playerStats.healTickTimer += delta;
             if (playerStats.healTickTimer >= 1.0) {
@@ -932,32 +939,32 @@ function animate() {
                 playerStats.hp = Math.min(playerStats.maxHp, playerStats.hp + 2);
                 updateHUD();
             }
-            playerStats.activeBuffs['Healing'] -= delta; 
-            if (playerStats.activeBuffs['Healing'] <= 0) delete playerStats.activeBuffs['Healing']; 
+            playerStats.activeBuffs['Healing'] -= delta;
+            if (playerStats.activeBuffs['Healing'] <= 0) delete playerStats.activeBuffs['Healing'];
         }
         if (playerStats.activeBuffs['Poison Mode']) { playerStats.activeBuffs['Poison Mode'] -= delta; if (playerStats.activeBuffs['Poison Mode'] <= 0) delete playerStats.activeBuffs['Poison Mode']; }
         if (playerStats.activeBuffs['Lightning Speed']) { playerStats.activeBuffs['Lightning Speed'] -= delta; if (playerStats.activeBuffs['Lightning Speed'] <= 0) delete playerStats.activeBuffs['Lightning Speed']; }
-        if (playerStats.activeBuffs['Shadow Form']) { 
-            playerStats.activeBuffs['Shadow Form'] -= delta; 
-            if (playerStats.activeBuffs['Shadow Form'] <= 0) { 
-                delete playerStats.activeBuffs['Shadow Form']; 
+        if (playerStats.activeBuffs['Shadow Form']) {
+            playerStats.activeBuffs['Shadow Form'] -= delta;
+            if (playerStats.activeBuffs['Shadow Form'] <= 0) {
+                delete playerStats.activeBuffs['Shadow Form'];
                 player.traverse(child => {
                     if (child.isMesh && child.userData.isPlayerBody && child.userData.origMat) {
                         child.material = child.userData.origMat;
                     }
                 });
-            } 
+            }
         }
-        if (playerStats.activeBuffs['God of Lightning']) { 
-            playerStats.activeBuffs['God of Lightning'] -= delta; 
-            if (playerStats.activeBuffs['God of Lightning'] <= 0) { 
+        if (playerStats.activeBuffs['God of Lightning']) {
+            playerStats.activeBuffs['God of Lightning'] -= delta;
+            if (playerStats.activeBuffs['God of Lightning'] <= 0) {
                 delete playerStats.activeBuffs['God of Lightning'];
                 updatePlayerWeapon();
                 if (player.userData.godAura) {
                     player.remove(player.userData.godAura);
                     player.userData.godAura = null;
                 }
-            } 
+            }
         }
 
         updateHUD();
@@ -1138,24 +1145,24 @@ function animate() {
                     scene.remove(b.userData.mesh);
                 }
             } else if (b.type === 'black_hole') {
-                b.rotation.y += delta; 
-                if(b.children[0]) {
-                    b.children[0].rotation.x += delta * 2; 
+                b.rotation.y += delta;
+                if (b.children[0]) {
+                    b.children[0].rotation.x += delta * 2;
                     b.children[0].rotation.y -= delta * 2;
                 }
-                
+
                 for (let idx = enemies.length - 1; idx >= 0; idx--) {
                     const e = enemies[idx];
                     const dist = e.position.distanceTo(b.position);
-                    
+
                     if (dist < 40) {
                         const pullDir = new THREE.Vector3().subVectors(b.position, e.position);
                         pullDir.y = 0;
                         pullDir.normalize();
-                        const pullStrength = (40 - dist) / 40 * 20; 
+                        const pullStrength = (40 - dist) / 40 * 20;
                         e.position.add(pullDir.multiplyScalar(pullStrength * delta));
-                        
-                        if (dist < 8) { 
+
+                        if (dist < 8) {
                             if (!e.userData.bhDmgTimer) e.userData.bhDmgTimer = 0;
                             e.userData.bhDmgTimer += delta;
                             if (e.userData.bhDmgTimer >= 1.0) {
@@ -1168,7 +1175,7 @@ function animate() {
                         }
                     }
                 }
-                
+
                 if (b.life <= 0) {
                     createExplosion(b.position, 0x8800ff);
                     scene.remove(b); bullets.splice(i, 1);
@@ -1223,7 +1230,7 @@ function animate() {
                         if (child.isMesh && child.material && child.material.emissive) {
                             const oldEmissive = child.material.emissive.getHex();
                             child.material.emissive.setHex(0xffff00);
-                            child.material.emissiveIntensity = 1.0; 
+                            child.material.emissiveIntensity = 1.0;
                             setTimeout(() => { if (child && child.material) { child.material.emissive.setHex(oldEmissive); child.material.emissiveIntensity = 0.0; } }, 100);
                         }
                     });
@@ -1311,7 +1318,7 @@ function animate() {
                         if (child.isMesh && child.material && child.material.emissive) {
                             const oldEmissive = child.material.emissive.getHex();
                             child.material.emissive.setHex(0xffff00);
-                            child.material.emissiveIntensity = 1.0; 
+                            child.material.emissiveIntensity = 1.0;
                             setTimeout(() => { if (child && child.material) { child.material.emissive.setHex(oldEmissive); child.material.emissiveIntensity = 0.0; } }, 100);
                         }
                     });
@@ -1431,6 +1438,31 @@ function animate() {
             }
         }
 
+        // Dropped Weapons
+        for (let i = droppedWeapons.length - 1; i >= 0; i--) {
+            const w = droppedWeapons[i];
+            if (w.userData.life) {
+                w.userData.life -= delta;
+                if (w.userData.life <= 0) {
+                    scene.remove(w);
+                    droppedWeapons.splice(i, 1);
+                    continue;
+                }
+            }
+            if (w.position.y > 0.1) {
+                w.userData.velocity.y -= 20 * delta;
+                w.position.add(w.userData.velocity.clone().multiplyScalar(delta));
+                w.rotation.x += w.userData.angularVelocity.x * delta * 5;
+                w.rotation.y += w.userData.angularVelocity.y * delta * 5;
+                w.rotation.z += w.userData.angularVelocity.z * delta * 5;
+                if (w.position.y <= 0.1) {
+                    w.position.y = 0.1;
+                    w.userData.velocity.set(0, 0, 0);
+                    w.rotation.x = Math.PI / 2;
+                }
+            }
+        }
+
         // Debris & Particles
         for (let i = boneDebris.length - 1; i >= 0; i--) {
             const b = boneDebris[i];
@@ -1482,18 +1514,48 @@ function updateHUD() {
     document.getElementById('icon-s1').style.borderColor = '#' + info.color.toString(16);
     document.getElementById('cd-s1').style.height = (playerStats.cooldowns.s1 / playerStats.maxCooldowns.s1 * 100) + '%';
     const actS1 = document.getElementById('act-s1');
-    if(actS1) actS1.innerText = playerStats.activeTimers.s1 > 0 ? Math.ceil(playerStats.activeTimers.s1) + 's' : '';
-    
+    if (actS1) {
+        if (playerStats.activeTimers.s1 > 0) {
+            actS1.innerText = Math.ceil(playerStats.activeTimers.s1) + 's';
+            actS1.style.color = '#00ffaa'; // Active buff color
+        } else if (playerStats.cooldowns.s1 > 0) {
+            actS1.innerText = Math.ceil(playerStats.cooldowns.s1) + 's';
+            actS1.style.color = '#ffaa00'; // Cooldown color
+        } else {
+            actS1.innerText = '';
+        }
+    }
+
     document.getElementById('name-s2').innerText = (type === 'Dark' && playerStats.weapon === 'Longsword') ? 'Crucifixion' : info.skills[1];
     document.getElementById('icon-s2').style.borderColor = '#' + info.color.toString(16);
     document.getElementById('cd-s2').style.height = (playerStats.cooldowns.s2 / playerStats.maxCooldowns.s2 * 100) + '%';
     const actS2 = document.getElementById('act-s2');
-    if(actS2) actS2.innerText = playerStats.activeTimers.s2 > 0 ? Math.ceil(playerStats.activeTimers.s2) + 's' : '';
-    
+    if (actS2) {
+        if (playerStats.activeTimers.s2 > 0) {
+            actS2.innerText = Math.ceil(playerStats.activeTimers.s2) + 's';
+            actS2.style.color = '#00ffaa';
+        } else if (playerStats.cooldowns.s2 > 0) {
+            actS2.innerText = Math.ceil(playerStats.cooldowns.s2) + 's';
+            actS2.style.color = '#ffaa00';
+        } else {
+            actS2.innerText = '';
+        }
+    }
+
     document.getElementById('name-ult').innerText = (type === 'Dark' && playerStats.weapon === 'Longsword') ? 'Black Hole' : info.skills[2];
     document.getElementById('cd-ult').style.height = (playerStats.cooldowns.ult / playerStats.maxCooldowns.ult * 100) + '%';
     const actUlt = document.getElementById('act-ult');
-    if(actUlt) actUlt.innerText = playerStats.activeTimers.ult > 0 ? Math.ceil(playerStats.activeTimers.ult) + 's' : '';
+    if (actUlt) {
+        if (playerStats.activeTimers.ult > 0) {
+            actUlt.innerText = Math.ceil(playerStats.activeTimers.ult) + 's';
+            actUlt.style.color = '#00ffaa';
+        } else if (playerStats.cooldowns.ult > 0) {
+            actUlt.innerText = Math.ceil(playerStats.cooldowns.ult) + 's';
+            actUlt.style.color = '#ffaa00';
+        } else {
+            actUlt.innerText = '';
+        }
+    }
 }
 
 function notify(msg, color) {
@@ -1576,7 +1638,7 @@ function enemyAttack(enemy, target = player) {
 
 function takeDamageEffect() { const flash = document.getElementById('damage-flash'); flash.style.opacity = 1; setTimeout(() => { flash.style.opacity = 0; }, 100); }
 function absorbDebris() { let count = 0; boneDebris.forEach(b => { if (!b.userData.target && b.position.distanceTo(player.position) < 15) { b.userData.target = player; b.userData.speed = 1; count++; } }); if (count > 0) notify(`Absorbed ${count} fragments!`, 0x00ff00); }
-function collectDebris(type, enemyLevel) { if (!playerStats.inventory[type]) playerStats.inventory[type] = 0; playerStats.inventory[type]++; notify(`+1 ${type} Fragment`, MONSTERS[type] ? MONSTERS[type].color : 0xffffff); const expGain = 5 * (enemyLevel || 1); playerStats.exp += expGain; if (playerStats.exp >= 100) { playerStats.level++; playerStats.exp = 0; playerStats.maxHp += 20; notify(`LEVEL UP!`, 0x00ff00); } updateHUD(); }
+function collectDebris(type, enemyLevel) { if (!playerStats.inventory[type]) playerStats.inventory[type] = 0; playerStats.inventory[type]++; notify(`+1 ${type} Fragment`, MONSTERS[type] ? MONSTERS[type].color : 0xffffff); const expGain = 5 * (enemyLevel || 1); playerStats.exp += expGain; if (playerStats.exp >= 100) { playerStats.level++; playerStats.exp = 0; playerStats.maxHp += 20; playerStats.hp += 20; notify(`LEVEL UP!`, 0x00ff00); } updateHUD(); }
 function createExplosion(pos, color) { for (let i = 0; i < 8; i++) { const g = new THREE.BoxGeometry(0.4, 0.4, 0.4); const m = new THREE.MeshBasicMaterial({ color: color }); const mesh = new THREE.Mesh(g, m); mesh.position.copy(pos); mesh.position.x += (Math.random() - 0.5) * 2; mesh.position.y += Math.random() * 2; mesh.position.z += (Math.random() - 0.5) * 2; mesh.userData = { velocity: new THREE.Vector3((Math.random() - 0.5) * 10, Math.random() * 10, (Math.random() - 0.5) * 10), life: 1.0 }; scene.add(mesh); particles.push({ mesh: mesh, life: 1.0 }); } }
 
 function triggerChainLightning(startEnemy, damage) {
@@ -1626,8 +1688,8 @@ function createVerticalLightning(pos) {
     const material = new THREE.LineBasicMaterial({ color: 0xffff00 });
     const points = [];
     points.push(pos.clone().add(new THREE.Vector3(0, 30, 0)));
-    const mid1 = pos.clone().add(new THREE.Vector3((Math.random() - 0.5)*6, 20, (Math.random() - 0.5)*6));
-    const mid2 = pos.clone().add(new THREE.Vector3((Math.random() - 0.5)*6, 10, (Math.random() - 0.5)*6));
+    const mid1 = pos.clone().add(new THREE.Vector3((Math.random() - 0.5) * 6, 20, (Math.random() - 0.5) * 6));
+    const mid2 = pos.clone().add(new THREE.Vector3((Math.random() - 0.5) * 6, 10, (Math.random() - 0.5) * 6));
     points.push(mid1, mid2);
     points.push(pos.clone());
     const geometry = new THREE.BufferGeometry().setFromPoints(points);
