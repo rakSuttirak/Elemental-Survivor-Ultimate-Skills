@@ -65,7 +65,7 @@ const playerStats = {
     activeBuffs: {},
     activeTimers: { s1: 0, s2: 0, ult: 0 },
     cooldowns: { s1: 0, s2: 0, ult: 0, heal: 0 },
-    maxCooldowns: { s1: 0.5, s2: 8, ult: 30 },
+    maxCooldowns: { s1: 0.5, s2: 8, ult: 30, heal: 15.0 },
     isAttacking: false, attackTimer: 0, meleeCooldown: 0
 };
 
@@ -338,9 +338,27 @@ function spawnEnemy(forcedZoneKey = null) {
         const lArm = new THREE.Mesh(new THREE.BoxGeometry(0.15 * sizeScale, 1 * sizeScale, 0.15 * sizeScale), boneMat); lArm.position.set(-0.5 * sizeScale, 2.2 * sizeScale, 0); group.add(lArm);
         const rArm = new THREE.Mesh(new THREE.BoxGeometry(0.15 * sizeScale, 1 * sizeScale, 0.15 * sizeScale), boneMat); rArm.position.set(0.5 * sizeScale, 2.2 * sizeScale, 0); group.add(rArm);
 
-        const swPivot = new THREE.Object3D(); swPivot.position.set(0.5 * sizeScale, 2.2 * sizeScale, 0); group.add(swPivot);
-        const sw = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.1, 2.5 * sizeScale), new THREE.MeshStandardMaterial({ color: 0xffffff }));
-        sw.position.set(0, -0.5, 1); sw.userData.isWeapon = true; swPivot.add(sw); group.userData.swordPivot = swPivot;
+        const weaponsList = ['Sword', 'Bow', 'Hammer'];
+        const wType = weaponsList[Math.floor(Math.random() * weaponsList.length)];
+
+        const swPivot = new THREE.Object3D(); swPivot.position.set(0, -0.4 * sizeScale, 0); rArm.add(swPivot);
+        let sw;
+        if (wType === 'Sword') {
+            sw = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.1, 2.5 * sizeScale), new THREE.MeshStandardMaterial({ color: 0xffffff }));
+            sw.position.set(0, -0.5, 1);
+        } else if (wType === 'Bow') {
+            sw = new THREE.Mesh(new THREE.TorusGeometry(0.8 * sizeScale, 0.1, 8, 16, Math.PI), new THREE.MeshStandardMaterial({ color: 0x8b4513 }));
+            sw.position.set(0, -0.2, 0.5); sw.rotation.y = Math.PI / 2;
+        } else if (wType === 'Hammer') {
+            const hGroup = new THREE.Group();
+            const handle = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.15, 2.5 * sizeScale), new THREE.MeshStandardMaterial({ color: 0x8b4513 }));
+            handle.position.set(0, -0.5, 1);
+            const head = new THREE.Mesh(new THREE.BoxGeometry(0.8 * sizeScale, 0.8 * sizeScale, 1.2 * sizeScale), new THREE.MeshStandardMaterial({ color: 0x555555 }));
+            head.position.set(0, -0.5, 2.0 * sizeScale);
+            hGroup.add(handle); hGroup.add(head);
+            sw = hGroup;
+        }
+        sw.userData.isWeapon = true; swPivot.add(sw); group.userData.swordPivot = swPivot;
 
         group.position.set(x, 0, z);
         group.userData = {
@@ -350,7 +368,9 @@ function spawnEnemy(forcedZoneKey = null) {
             level: enemyLevel, dmgMultiplier: scaledDmg, zone: zoneKey,
             spawnPoint: new THREE.Vector3(x, 0, z),
             wanderTarget: new THREE.Vector3(x + (Math.random() - 0.5) * 10, 0, z + (Math.random() - 0.5) * 10),
-            wanderWait: 0
+            wanderWait: 0,
+            lArm: lArm, rArm: rArm, skull: skull, spine: spine, sizeScale: sizeScale,
+            weaponType: wType
         };
 
         // Health Bar Background
@@ -390,6 +410,68 @@ function spawnEnemy(forcedZoneKey = null) {
 
         scene.add(group); enemies.push(group);
     }
+}
+
+function spawnBoss(forcedZoneKey = null) {
+    if (enemies.length > MAX_ENEMIES || !player) return;
+
+    let zCenter, xCenter, zoneData, zoneKey;
+
+    if (forcedZoneKey) {
+        zoneKey = forcedZoneKey;
+        zoneData = ZONES[zoneKey];
+        zCenter = zoneData.startZ + Math.random() * (zoneData.endZ - zoneData.startZ);
+        xCenter = (Math.random() - 0.5) * 160;
+    } else {
+        zCenter = player.position.z + 50 + (Math.random() * 50);
+        xCenter = player.position.x + (Math.random() * 60) - 30;
+        zoneData = ZONES.A; zoneKey = 'A';
+        if (zCenter > 100) { zoneData = ZONES.B; zoneKey = 'B'; }
+        if (zCenter > 400) { zoneData = ZONES.C; zoneKey = 'C'; }
+    }
+
+    const elemKey = zoneData.allowedElements[Math.floor(Math.random() * zoneData.allowedElements.length)];
+    const info = MONSTERS[elemKey];
+
+    const group = new THREE.Group();
+    const mat = new THREE.MeshStandardMaterial({ color: info.color });
+    const body = new THREE.Mesh(new THREE.BoxGeometry(3, 4, 2), mat); body.position.y = 4; group.add(body);
+    const head = new THREE.Mesh(new THREE.BoxGeometry(1.5, 1.5, 1.5), mat); head.position.y = 6.75; group.add(head);
+
+    const lArm = new THREE.Mesh(new THREE.BoxGeometry(1, 3, 1), mat); lArm.position.set(-2, 4, 0); group.add(lArm);
+    const rArm = new THREE.Mesh(new THREE.BoxGeometry(1, 3, 1), mat); rArm.position.set(2, 4, 0); group.add(rArm);
+
+    const lLeg = new THREE.Mesh(new THREE.BoxGeometry(1.2, 2, 1.2), mat); lLeg.position.set(-1, 1, 0); group.add(lLeg);
+    const rLeg = new THREE.Mesh(new THREE.BoxGeometry(1.2, 2, 1.2), mat); rLeg.position.set(1, 1, 0); group.add(rLeg);
+
+    group.position.set(xCenter, 0, zCenter);
+    group.userData = {
+        hp: 100, maxHp: 100, type: elemKey, name: info.name.replace('Skeleton', 'Golem'),
+        buff: info.buff, canAbsorb: false, lastAttack: 0, statuses: {},
+        isAggro: false, isBoss: true,
+        level: 5, zone: zoneKey,
+        spawnPoint: new THREE.Vector3(xCenter, 0, zCenter),
+        wanderTarget: new THREE.Vector3(xCenter + (Math.random() - 0.5) * 10, 0, zCenter + (Math.random() - 0.5) * 10),
+        wanderWait: 0,
+        lArm: lArm, rArm: rArm, body: body, walkTimer: 0,
+        attackType: 'melee'
+    };
+
+    const hpBg = new THREE.Mesh(new THREE.PlaneGeometry(6, 0.5), new THREE.MeshBasicMaterial({ color: 0x000000 }));
+    hpBg.position.y = 8.5; group.add(hpBg);
+    const hpFill = new THREE.Mesh(new THREE.PlaneGeometry(6, 0.5), new THREE.MeshBasicMaterial({ color: 0xff0000 }));
+    hpFill.position.z = 0.02; hpFill.position.x = -3; hpBg.add(hpFill);
+    group.userData.hpBar = hpFill; group.userData.hpBarBg = hpBg;
+
+    const lvCvs = document.createElement('canvas'); lvCvs.width = 512; lvCvs.height = 64;
+    const lvCtx = lvCvs.getContext('2d');
+    lvCtx.font = 'bold 36px Arial'; lvCtx.textAlign = 'center'; lvCtx.textBaseline = 'middle';
+    lvCtx.shadowColor = 'black'; lvCtx.shadowBlur = 4; lvCtx.fillStyle = '#ff0000';
+    lvCtx.fillText('BOSS: ' + elemKey + ' Golem', 256, 32);
+    const lvSpr = new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(lvCvs) }));
+    lvSpr.scale.set(10, 1.5, 1); lvSpr.position.y = 9.5; group.add(lvSpr);
+
+    scene.add(group); enemies.push(group);
 }
 
 function shatterEnemy(enemy) {
@@ -1024,20 +1106,56 @@ function animate() {
             if (b.type === 'projectile') {
                 if (b.isWindBlade && b.bladeMesh) b.bladeMesh.rotation.z -= 20 * delta;
                 b.position.add(b.velocity.clone().multiplyScalar(delta));
-                for (let idx = enemies.length - 1; idx >= 0; idx--) {
-                    const e = enemies[idx];
-                    const dx = b.position.x - e.position.x;
-                    const dz = b.position.z - e.position.z;
-                    if (Math.sqrt(dx * dx + dz * dz) < 2 && b.position.y >= 0 && b.position.y <= 4.5) {
-                        applyDamage(e, b.dmg);
-                        if (playerStats.activeBuffs['Poison Mode']) e.userData.statuses.poison = 5;
-                        if (playerStats.activeBuffs['Lightning Speed']) { e.userData.statuses.shock = 3; triggerChainLightning(e, b.dmg * 0.5); }
-                        if (b.element === 'Fire') e.userData.statuses.burn = 3;
-                        if (b.element === 'Water') e.userData.statuses.slow = 3;
-                        if (e.userData.hp <= 0) { shatterEnemy(e); enemies.splice(idx, 1); }
-                        const explosionColor = b.material ? b.material.color : (b.bladeMesh ? b.bladeMesh.material.color : 0xffffff);
+                if (b.isEnemy) {
+                    let hit = false;
+                    if (b.position.distanceTo(player.position) < 2 && b.position.y >= 0 && b.position.y <= 4.5) {
+                        let dmg = b.dmg;
+                        if (playerStats.earthArmor > 0) {
+                            playerStats.earthArmor -= dmg;
+                            notify(`Armor took ${dmg} dmg! (${Math.max(0, playerStats.earthArmor)}/100)`, 0x885500);
+                            if (playerStats.earthArmor <= 0) {
+                                notify("Earth Armor Broken!", 0xff0000);
+                                if (player.userData.earthArmorMesh) { player.remove(player.userData.earthArmorMesh); player.userData.earthArmorMesh = null; }
+                            }
+                        } else {
+                            playerStats.hp -= dmg; document.getElementById('hp-bar').style.width = (playerStats.hp / playerStats.maxHp * 100) + '%';
+                            const flash = document.getElementById('damage-flash'); flash.style.opacity = 1; setTimeout(() => { flash.style.opacity = 0; }, 100);
+                            if (playerStats.hp <= 0) { document.exitPointerLock(); alert("GAME OVER!"); location.reload(); }
+                        }
+                        hit = true;
+                    }
+                    if (!hit) {
+                        for (let aIdx = allies.length - 1; aIdx >= 0; aIdx--) {
+                            const ally = allies[aIdx];
+                            if (b.position.distanceTo(ally.position) < 3) {
+                                ally.userData.hp -= b.dmg;
+                                if (ally.userData.hpBar) ally.userData.hpBar.scale.x = Math.max(0, ally.userData.hp / ally.userData.maxHp);
+                                if (ally.userData.hp <= 0) { createExplosion(ally.position, 0x885500); allies.splice(aIdx, 1); scene.remove(ally); }
+                                hit = true;
+                                break;
+                            }
+                        }
+                    }
+                    if (hit) {
+                        const explosionColor = b.material ? b.material.color : 0xffffff;
                         scene.remove(b); bullets.splice(i, 1); createExplosion(b.position, explosionColor);
-                        break;
+                    }
+                } else {
+                    for (let idx = enemies.length - 1; idx >= 0; idx--) {
+                        const e = enemies[idx];
+                        const dx = b.position.x - e.position.x;
+                        const dz = b.position.z - e.position.z;
+                        if (Math.sqrt(dx * dx + dz * dz) < 2 && b.position.y >= 0 && b.position.y <= 4.5) {
+                            applyDamage(e, b.dmg);
+                            if (playerStats.activeBuffs['Poison Mode']) e.userData.statuses.poison = 5;
+                            if (playerStats.activeBuffs['Lightning Speed']) { e.userData.statuses.shock = 3; triggerChainLightning(e, b.dmg * 0.5); }
+                            if (b.element === 'Fire') e.userData.statuses.burn = 3;
+                            if (b.element === 'Water') e.userData.statuses.slow = 3;
+                            if (e.userData.hp <= 0) { shatterEnemy(e); enemies.splice(idx, 1); }
+                            const explosionColor = b.material ? b.material.color : (b.bladeMesh ? b.bladeMesh.material.color : 0xffffff);
+                            scene.remove(b); bullets.splice(i, 1); createExplosion(b.position, explosionColor);
+                            break;
+                        }
                     }
                 }
             } else if (b.type === 'wave') {
@@ -1203,6 +1321,9 @@ function animate() {
                 spawnEnemy('B');
                 spawnEnemy('C');
             }
+            if (Math.random() < 0.5) spawnBoss('A');
+            if (Math.random() < 0.5) spawnBoss('B');
+            if (Math.random() < 0.5) spawnBoss('C');
             notify("LARGE WAVE SPAWNED!", 0xffffff);
         }
         enemies.forEach((e, idx) => {
@@ -1282,12 +1403,30 @@ function animate() {
                 e.userData.currentTarget = targetObj;
 
                 if (targetObj && (minDistToTarget < 35 || e.userData.isAggro)) {
-                    const dir = new THREE.Vector3().subVectors(targetPos, e.position).normalize();
-                    e.position.add(dir.multiplyScalar(currentSpeed * delta));
+                    let attackRange = 4.5;
+                    if (e.userData.isBoss) {
+                        attackRange = e.userData.attackType === 'ranged' ? 40 : 4.5;
+                    } else if (e.userData.weaponType === 'Bow') {
+                        attackRange = 40;
+                    }
+
+                    if (minDistToTarget > attackRange - 0.5) {
+                        const dir = new THREE.Vector3().subVectors(targetPos, e.position).normalize();
+                        e.position.add(dir.multiplyScalar(currentSpeed * delta));
+                    }
                     e.lookAt(targetPos.x, e.position.y, targetPos.z);
+                    if (e.userData.isBoss) {
+                        e.userData.walkTimer = (e.userData.walkTimer || 0) + delta * 10;
+                        e.userData.lArm.rotation.x = Math.sin(e.userData.walkTimer) * 0.5;
+                        e.userData.rArm.rotation.x = -Math.sin(e.userData.walkTimer) * 0.5;
+                    }
                 } else if (e.userData.spawnPoint) {
                     if (e.userData.wanderWait > 0) {
                         e.userData.wanderWait -= delta;
+                        if (e.userData.isBoss) {
+                            e.userData.lArm.rotation.x = 0;
+                            e.userData.rArm.rotation.x = 0;
+                        }
                     } else {
                         const distToWander = e.position.distanceTo(e.userData.wanderTarget);
                         if (distToWander < 1) {
@@ -1299,6 +1438,11 @@ function animate() {
                             const dir = new THREE.Vector3().subVectors(e.userData.wanderTarget, e.position).normalize();
                             e.position.add(dir.multiplyScalar(currentSpeed * 0.5 * delta)); // Move slower while wandering
                             e.lookAt(e.userData.wanderTarget.x, e.position.y, e.userData.wanderTarget.z);
+                            if (e.userData.isBoss) {
+                                e.userData.walkTimer = (e.userData.walkTimer || 0) + delta * 5;
+                                e.userData.lArm.rotation.x = Math.sin(e.userData.walkTimer) * 0.5;
+                                e.userData.rArm.rotation.x = -Math.sin(e.userData.walkTimer) * 0.5;
+                            }
                         }
                     }
                 }
@@ -1339,17 +1483,67 @@ function animate() {
             const targetObj = e.userData.currentTarget;
             if (targetObj) {
                 const dist = e.position.distanceTo(targetObj.position);
-                if (dist < 4.5 && !e.userData.canAbsorb) {
-                    const now = Date.now();
-                    if (!e.userData.lastAttack || now - e.userData.lastAttack > 1500) {
-                        e.userData.lastAttack = now; enemyAttack(e, targetObj);
+                if (e.userData.isBoss) {
+                    if (dist < 4.5 && !e.userData.canAbsorb) {
+                        const now = Date.now();
+                        if (!e.userData.lastAttack || now - e.userData.lastAttack > 1500) {
+                            e.userData.lastAttack = now;
+                            e.userData.attackType = 'melee';
+                            enemyAttack(e, targetObj);
+                        }
+                    } else if (dist < 40 && !e.userData.canAbsorb) {
+                        const now = Date.now();
+                        if (!e.userData.lastAttack || now - e.userData.lastAttack > 3000) {
+                            e.userData.lastAttack = now;
+                            e.userData.attackType = 'ranged';
+                            enemyAttack(e, targetObj);
+                        }
+                    }
+                } else {
+                    const attackRange = e.userData.weaponType === 'Bow' ? 40 : 4.5;
+                    const attackCD = e.userData.weaponType === 'Bow' ? 3000 : 1500;
+                    if (dist < attackRange && !e.userData.canAbsorb) {
+                        const now = Date.now();
+                        if (!e.userData.lastAttack || now - e.userData.lastAttack > attackCD) {
+                            e.userData.lastAttack = now; enemyAttack(e, targetObj);
+                        }
                     }
                 }
             }
             if (e.userData.isAttacking) {
                 e.userData.attackTimer += delta * 10;
-                if (e.userData.swordPivot) e.userData.swordPivot.rotation.x = Math.sin(e.userData.attackTimer) * 2;
-                if (e.userData.attackTimer > Math.PI) { e.userData.isAttacking = false; if (e.userData.swordPivot) e.userData.swordPivot.rotation.x = 0; }
+                if (e.userData.isBoss) {
+                    if (e.userData.attackType === 'melee') {
+                        e.userData.lArm.rotation.x = -Math.sin(e.userData.attackTimer) * 2;
+                        e.userData.rArm.rotation.x = -Math.sin(e.userData.attackTimer) * 2;
+                    } else {
+                        e.userData.body.rotation.x = Math.sin(e.userData.attackTimer) * 0.5;
+                    }
+                    if (e.userData.attackTimer > Math.PI) {
+                        e.userData.isAttacking = false;
+                        e.userData.lArm.rotation.x = 0;
+                        e.userData.rArm.rotation.x = 0;
+                        e.userData.body.rotation.x = 0;
+                    }
+                } else {
+                    const t = e.userData.attackTimer;
+
+                    if (e.userData.swordPivot) e.userData.swordPivot.rotation.x = Math.sin(t) * 2;
+                    if (e.userData.rArm) e.userData.rArm.rotation.x = -Math.sin(t) * 1.5;
+
+                    if (t > Math.PI) {
+                        e.userData.isAttacking = false;
+                        if (e.userData.swordPivot) {
+                            e.userData.swordPivot.rotation.set(0, 0, 0);
+                            const scale = e.userData.sizeScale || 1;
+                            e.userData.swordPivot.position.set(0, -0.4 * scale, 0);
+                        }
+                        if (e.userData.rArm) e.userData.rArm.rotation.set(0, 0, 0);
+                        if (e.userData.lArm) e.userData.lArm.rotation.set(0, 0, 0);
+                        if (e.userData.skull) e.userData.skull.rotation.set(0, 0, 0);
+                        if (e.userData.spine) e.userData.spine.rotation.set(0, 0, 0);
+                    }
+                }
             }
         });
 
@@ -1556,6 +1750,23 @@ function updateHUD() {
             actUlt.innerText = '';
         }
     }
+
+    const cdHeal = document.getElementById('cd-heal');
+    if (cdHeal) {
+        cdHeal.style.height = (playerStats.cooldowns.heal / playerStats.maxCooldowns.heal * 100) + '%';
+    }
+    const actHeal = document.getElementById('act-heal');
+    if (actHeal) {
+        if (playerStats.activeBuffs['Healing']) {
+            actHeal.innerText = Math.ceil(playerStats.activeBuffs['Healing']) + 's';
+            actHeal.style.color = '#00ffaa';
+        } else if (playerStats.cooldowns.heal > 0) {
+            actHeal.innerText = Math.ceil(playerStats.cooldowns.heal) + 's';
+            actHeal.style.color = '#ffaa00';
+        } else {
+            actHeal.innerText = '';
+        }
+    }
 }
 
 function notify(msg, color) {
@@ -1591,6 +1802,7 @@ function selectElement(el) {
         spawnEnemy('B');
         spawnEnemy('C');
     }
+    spawnBoss('A');
 }
 function toggleFusionMenu() { isMenuOpen = !isMenuOpen; const m = document.getElementById('fusion-menu'); if (isMenuOpen) { document.exitPointerLock(); m.classList.remove('hidden'); renderInventory(); } else { m.classList.add('hidden'); renderer.domElement.requestPointerLock(); } }
 function renderInventory() { const list = document.getElementById('inventory-list'); list.innerHTML = ''; for (let [key, val] of Object.entries(playerStats.inventory)) { if (val > 0) { const d = document.createElement('div'); d.className = 'inv-item'; d.innerHTML = `${key} x${val}`; list.appendChild(d); } } }
@@ -1599,38 +1811,73 @@ function attemptFusion() { notify("Fusion System In Progress...", 0xaaaaaa); }
 function enemyAttack(enemy, target = player) {
     enemy.userData.isAttacking = true; enemy.userData.attackTimer = 0;
     const info = MONSTERS[enemy.userData.type];
-    const slashGeo = new THREE.RingGeometry(2, 2.5, 8, 1, -Math.PI / 3, Math.PI / 1.5);
-    const slashMat = new THREE.MeshBasicMaterial({ color: info.color, side: THREE.DoubleSide, transparent: true, opacity: 0.8 });
-    const slash = new THREE.Mesh(slashGeo, slashMat);
-    slash.position.copy(enemy.position); slash.position.y = 2.5; slash.lookAt(target.position);
-    scene.add(slash); setTimeout(() => scene.remove(slash), 200);
-    if (target.position.distanceTo(enemy.position) < 4.5) {
-        const baseDmg = 10;
-        const dmgMul = enemy.userData.dmgMultiplier || 1;
-        let dmg = Math.round(baseDmg * dmgMul);
-        if (target === player) {
-            if (playerStats.earthArmor > 0) {
-                playerStats.earthArmor -= dmg;
-                notify(`Armor took ${dmg} dmg! (${Math.max(0, playerStats.earthArmor)}/100)`, 0x885500);
-                if (playerStats.earthArmor <= 0) {
-                    notify("Earth Armor Broken!", 0xff0000);
-                    if (player.userData.earthArmorMesh) {
-                        player.remove(player.userData.earthArmorMesh);
-                        player.userData.earthArmorMesh = null;
+
+    let isRanged = false;
+    let baseDmg = 10;
+    if (enemy.userData.isBoss) {
+        if (enemy.userData.attackType === 'ranged') {
+            isRanged = true;
+            baseDmg = 10;
+        } else {
+            baseDmg = 5;
+        }
+    } else {
+        if (enemy.userData.weaponType === 'Bow') {
+            isRanged = true;
+            baseDmg = 8;
+        } else if (enemy.userData.weaponType === 'Hammer') {
+            baseDmg = 10;
+        } else {
+            baseDmg = 5;
+        }
+    }
+
+    if (isRanged) {
+        const projGroup = new THREE.Mesh(new THREE.BoxGeometry(1.5, 1.5, 1.5), new THREE.MeshStandardMaterial({ color: info.color }));
+        const spawnPos = enemy.position.clone(); spawnPos.y = 4;
+        projGroup.position.copy(spawnPos);
+        const dir = new THREE.Vector3().subVectors(target.position, spawnPos).normalize();
+        projGroup.velocity = dir.multiplyScalar(30);
+        projGroup.life = 3;
+        projGroup.dmg = baseDmg;
+        projGroup.type = 'projectile';
+        projGroup.isEnemy = true;
+        scene.add(projGroup); bullets.push(projGroup);
+    } else {
+        const slashGeo = new THREE.RingGeometry(2, 2.5, 8, 1, -Math.PI / 3, Math.PI / 1.5);
+        const slashMat = new THREE.MeshBasicMaterial({ color: info.color, side: THREE.DoubleSide, transparent: true, opacity: 0.8 });
+        const slash = new THREE.Mesh(slashGeo, slashMat);
+        slash.position.copy(enemy.position); slash.position.y = 2.5; slash.lookAt(target.position);
+        scene.add(slash); setTimeout(() => scene.remove(slash), 200);
+        if (target.position.distanceTo(enemy.position) < 4.5) {
+            const dmgMul = enemy.userData.dmgMultiplier || 1;
+            let dmg = Math.round(baseDmg * dmgMul);
+            if (enemy.userData.isBoss) dmg = baseDmg; // Fixed damage for Boss
+
+            if (target === player) {
+                if (playerStats.earthArmor > 0) {
+                    playerStats.earthArmor -= dmg;
+                    notify(`Armor took ${dmg} dmg! (${Math.max(0, playerStats.earthArmor)}/100)`, 0x885500);
+                    if (playerStats.earthArmor <= 0) {
+                        notify("Earth Armor Broken!", 0xff0000);
+                        if (player.userData.earthArmorMesh) {
+                            player.remove(player.userData.earthArmorMesh);
+                            player.userData.earthArmorMesh = null;
+                        }
                     }
+                } else {
+                    playerStats.hp -= dmg; updateHUD(); takeDamageEffect();
+                    if (playerStats.hp <= 0) { document.exitPointerLock(); alert("GAME OVER!"); location.reload(); }
                 }
-            } else {
-                playerStats.hp -= dmg; updateHUD(); takeDamageEffect();
-                if (playerStats.hp <= 0) { document.exitPointerLock(); alert("GAME OVER!"); location.reload(); }
-            }
-        } else if (target.userData && target.userData.isGolem) {
-            target.userData.hp -= dmg;
-            if (target.userData.hpBar) target.userData.hpBar.scale.x = Math.max(0, target.userData.hp / target.userData.maxHp);
-            if (target.userData.hp <= 0) {
-                createExplosion(target.position, 0x885500);
-                const idx = allies.indexOf(target);
-                if (idx > -1) allies.splice(idx, 1);
-                scene.remove(target);
+            } else if (target.userData && target.userData.isGolem) {
+                target.userData.hp -= dmg;
+                if (target.userData.hpBar) target.userData.hpBar.scale.x = Math.max(0, target.userData.hp / target.userData.maxHp);
+                if (target.userData.hp <= 0) {
+                    createExplosion(target.position, 0x885500);
+                    const idx = allies.indexOf(target);
+                    if (idx > -1) allies.splice(idx, 1);
+                    scene.remove(target);
+                }
             }
         }
     }
