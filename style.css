@@ -139,6 +139,19 @@ body {
     transition: height 0.1s linear;
 }
 
+.active-timer {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    font-size: 18px;
+    color: #0f0;
+    text-shadow: 0 0 5px #000, 0 0 5px #0f0;
+    font-weight: bold;
+    pointer-events: none;
+    z-index: 2;
+}
+
 .key-hint {
     font-size: 12px;
     color: #aaa;
