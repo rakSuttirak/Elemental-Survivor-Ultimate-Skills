@@ -41,7 +41,8 @@ const MONSTERS = {
 const WEAPONS = {
     'Longsword': { name: 'Longsword', type: 'melee', symbol: '🗡️', damage: 20, speed: 15, range: 10, color: 0xeeeeee },
     'Bow': { name: 'Bow', type: 'ranged', symbol: '🏹', damage: 12, speed: 20, range: 50, color: 0x8b4513 },
-    'Staff': { name: 'Staff', type: 'magic', symbol: '🪄', damage: 15, speed: 10, range: 40, color: 0x8a2be2 }
+    'Staff': { name: 'Staff', type: 'magic', symbol: '🪄', damage: 15, speed: 10, range: 40, color: 0x8a2be2 },
+    'Knuckles': { name: 'Knuckles', type: 'melee', symbol: '🥊', damage: 10, speed: 25, range: 6, color: 0xcd7f32 }
 };
 
 // ==========================================
@@ -142,7 +143,7 @@ function setupMenu() {
 
 function setupWeaponMenu() {
     const grid = document.getElementById('weapon-grid');
-    const weapons = ['Longsword', 'Bow', 'Staff'];
+    const weapons = ['Longsword', 'Bow', 'Staff', 'Knuckles'];
     weapons.forEach(w => {
         const info = WEAPONS[w];
         const div = document.createElement('div');
@@ -212,6 +213,18 @@ function updatePlayerWeapon() {
         pole.rotation.x = Math.PI / 2; pole.position.set(0, 0, 0); swordGroup.add(pole);
         const orb = new THREE.Mesh(new THREE.SphereGeometry(0.3), new THREE.MeshBasicMaterial({ color: info.color }));
         orb.position.set(0, 0, 1.7); swordGroup.add(orb);
+        swordGroup.rotation.x = -Math.PI / 1.5;
+    } else if (playerStats.weapon === 'Knuckles') {
+        const knuckle = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.4, 0.4), new THREE.MeshStandardMaterial({ color: info.color }));
+        const spikeMat = new THREE.MeshStandardMaterial({ color: 0xaaaaaa });
+        for (let i = 0; i < 3; i++) {
+            const spike = new THREE.Mesh(new THREE.ConeGeometry(0.05, 0.2, 4), spikeMat);
+            spike.position.set((i - 1) * 0.12, 0, 0.25);
+            spike.rotation.x = Math.PI / 2;
+            knuckle.add(spike);
+        }
+        knuckle.position.set(0, 0, 0.2);
+        swordGroup.add(knuckle);
         swordGroup.rotation.x = -Math.PI / 1.5;
     }
 
@@ -1109,7 +1122,7 @@ function animate() {
                 if (b.isEnemy) {
                     let hit = false;
                     if (b.position.distanceTo(player.position) < 2 && b.position.y >= 0 && b.position.y <= 4.5) {
-                        let dmg = b.dmg;
+                        let dmg = 2;
                         if (playerStats.earthArmor > 0) {
                             playerStats.earthArmor -= dmg;
                             notify(`Armor took ${dmg} dmg! (${Math.max(0, playerStats.earthArmor)}/100)`, 0x885500);
@@ -1855,6 +1868,7 @@ function enemyAttack(enemy, target = player) {
             if (enemy.userData.isBoss) dmg = baseDmg; // Fixed damage for Boss
 
             if (target === player) {
+                dmg = 2;
                 if (playerStats.earthArmor > 0) {
                     playerStats.earthArmor -= dmg;
                     notify(`Armor took ${dmg} dmg! (${Math.max(0, playerStats.earthArmor)}/100)`, 0x885500);
